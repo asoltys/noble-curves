@@ -693,6 +693,21 @@ export const rangeproofSign = async (
   return proof;
 }
 
+let negateScalar = (a: bigint) => {
+  if (a === 0n) {
+    return 0n;
+  }
+
+  let result = secp256k1N - a;
+
+  if (result < 0n) {
+    result += secp256k1N;
+  } else if (result >= secp256k1N) {
+    result -= secp256k1N;
+  }
+
+  return result;
+};
 
 class RNG {
   private k: Uint8Array;
@@ -705,7 +720,7 @@ class RNG {
     this.retry = retry;
   }
 
-  static async create(key: Uint8Array): Promise<RNG> {
+  static async create(seed: Uint8Array): Promise<RNG> {
     const zero = new Uint8Array([0x00]);
     const one = new Uint8Array([0x01]);
 
@@ -713,56 +728,45 @@ class RNG {
     let k = new Uint8Array(32).fill(0x00); // RFC6979 3.2.c.
 
     // RFC6979 3.2.d.
-    k = hmac(sha256, k, Uint8Array.from([...v, ...zero, ...key]));
+    k = hmac(sha256, k, concatBytes(v, zero, seed));
     v = hmac(sha256, k, v);
 
     // RFC6979 3.2.f.
-    k = hmac(sha256, k, Uint8Array.from([...v, ...one, ...key]));
+    k = hmac(sha256, k, concatBytes(v, one, seed));
     v = hmac(sha256, k, v);
 
     return new RNG(k, v, false);
   }
 
-  async generate(out: Uint8Array, outlen: number): Promise<void> {
+  generate(outlen: number): Uint8Array {
     const zero = new Uint8Array([0x00]);
+    let out = new Uint8Array(outlen);
+
     if (this.retry) {
-      this.k = hmac(sha256, this.k, Uint8Array.from([...this.v, ...zero]));
+      this.k = hmac(sha256, this.k, concatBytes(this.v, zero));
       this.v = hmac(sha256, this.k, this.v);
     }
 
-    while (outlen > 0) {
-      let now = outlen > 32 ? 32 : outlen;
+    let remaining = outlen;
+    let offset = 0;
+    while (remaining > 0) {
+      const now = Math.min(remaining, 32);
       this.v = hmac(sha256, this.k, this.v);
-      out.set(this.v.slice(0, now), out.length - outlen);
-      outlen -= now;
+      out.set(this.v.slice(0, now), offset);
+      remaining -= now;
+      offset += now;
     }
 
     this.retry = true;
+    return out;
   }
 
-  finalize(): void {
+  finalize() {
     this.k.fill(0);
     this.v.fill(0);
     this.retry = false;
   }
 }
-
-let negateScalar = (a: bigint) => {
-  if (a === 0n) {
-    return 0n;
-  }
-
-
-  let result = secp256k1N - a;
-
-  if (result < 0n) {
-    result += secp256k1N;
-  } else if (result >= secp256k1N) {
-    result -= secp256k1N;
-  }
-
-  return result;
-};
 
 async function rangeproofGenrand(
   sec: bigint[],
@@ -795,13 +799,13 @@ async function rangeproofGenrand(
   rngseed.set(serializePoint(genP), 32 + 33);
   rngseed.set(proof.slice(0, len), 32 + 33 + 33);
 
-  let rng = await RNG.create(rngseed);
+  const rng = await RNG.create(rngseed);
 
   for (let i = 0; i < rings; i++) {
     if (i < rings - 1) {
-      await rng.generate(tmp, 32);
+      tmp = rng.generate(32);
       do {
-        await rng.generate(tmp, 32);
+        tmp = rng.generate(32);
         sec[i] = bytesToNumberBE(tmp) % secp256k1N;
       } while (bytesToNumberBE(tmp) > secp256k1N || sec[i] === 0n);
       acc = (acc + sec[i]) % secp256k1N;
@@ -810,7 +814,7 @@ async function rangeproofGenrand(
     }
 
     for (let j = 0; j < rsizes[i]; j++) {
-      await rng.generate(tmp, 32);
+      tmp = rng.generate(32);
       if (message) {
         for (let b = 0; b < 32; b++) {
           tmp[b] ^= message[(i * 4 + j) * 32 + b];
@@ -826,6 +830,7 @@ async function rangeproofGenrand(
 
   return ret;
 }
+
 
 const setScalarFromB32 = (b32: Uint8Array) => {
   if (b32.length !== 32) {
