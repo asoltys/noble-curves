@@ -1,9 +1,10 @@
 /*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
 import { sha256 } from '@noble/hashes/sha256';
+import { hmac } from '@noble/hashes/hmac';
 import { randomBytes } from '@noble/hashes/utils';
 import { createCurve } from './_shortw_utils.js';
 import { createHasher, isogenyMap } from './abstract/hash-to-curve.js';
-import { Field, mod, pow2 } from './abstract/modular.js';
+import { Field, mod, pow2, FpIsSquare } from './abstract/modular.js';
 import type { Hex, PrivKey } from './abstract/utils.js';
 import {
   inRange,
@@ -284,3 +285,563 @@ const htf = /* @__PURE__ */ (() =>
   ))();
 export const hashToCurve = /* @__PURE__ */ (() => htf.hashToCurve)();
 export const encodeToCurve = /* @__PURE__ */ (() => htf.encodeToCurve)();
+
+
+function serializePoint(point: PointType<bigint>) {
+  const data = new Uint8Array(33);
+  const yBigInt = BigInt(point.y);
+  data[0] = FpIsSquare(Fp)(yBigInt) ? 0x00 : 0x01;
+
+  const xBigInt = BigInt(point.x);
+  const xHex = xBigInt.toString(16).padStart(64, "0");
+  const xBytes = Uint8Array.from(Buffer.from(xHex, "hex"));
+
+  data.set(xBytes, 1);
+
+  return data;
+}
+
+const borromeanHash = async (m: Uint8Array, e: Uint8Array, ridx: number, eidx: number) => {
+  const ring = new Uint8Array(4);
+  const epos = new Uint8Array(4);
+
+  const writeBe32 = (buffer: Uint8Array, value: number) => {
+    buffer[0] = (value >> 24) & 0xff;
+    buffer[1] = (value >> 16) & 0xff;
+    buffer[2] = (value >> 8) & 0xff;
+    buffer[3] = value & 0xff;
+  };
+
+  writeBe32(ring, ridx);
+  writeBe32(epos, eidx);
+
+  const sha256Context = sha256.create();
+  sha256Context.update(e);
+  sha256Context.update(m);
+  sha256Context.update(ring);
+  sha256Context.update(epos);
+
+  return sha256Context.digest();
+}
+
+function clz64(x: bigint) {
+  if (x === 0n) return 64;
+  let n = 0;
+  while ((x & 0x8000000000000000n) === 0n) {
+    x <<= 1n;
+    n++;
+  }
+  return n;
+}
+
+type ProveParams = {
+  rings: number,
+  rsizes: number[],
+  npub: number,
+  secidx: number[],
+  minValue: bigint,
+  mantissa: number,
+  scale: bigint,
+  minBits: number,
+  v: bigint,
+  exp: number,
+}
+
+const rangeProveParams = (minBits: number, minValue: bigint, exp: number, value: bigint): ProveParams => {
+  let i, v;
+  let rsizes = new Array(32);
+  let secidx = new Array(32);
+  let rings = 1;
+  rsizes[0] = 1;
+  secidx[0] = 0;
+  let scale = 1n;
+  let mantissa = 0;
+  let npub = 0;
+
+  if (minValue === 0xffffffffffffffffn) exp = -1;
+
+  if (exp >= 0) {
+    let maxBits;
+    let v2;
+    if (
+      (minValue && value > 0x7fffffffffffffffn) ||
+      (value && minValue >= 0x7fffffffffffffffn)
+    ) {
+      throw new Error("value out of range");
+    }
+    maxBits = minValue ? clz64(BigInt(minValue)) : 64;
+    if (minBits > maxBits) {
+      minBits = maxBits;
+    }
+    if (minBits > 61 || value > 0x7fffffffffffffffn) {
+      exp = 0;
+    }
+    v = value - BigInt(minValue);
+    v2 = minBits ? 0xffffffffffffffffn >> BigInt(64 - minBits) : 0n;
+    for (i = 0; i < exp && v2 <= 0xffffffffffffffffn / 10n; i++) {
+      v /= 10n;
+      v2 *= 10n;
+    }
+    exp = i;
+    v2 = v;
+    for (i = 0; i < exp; i++) {
+      v2 *= 10n;
+      scale *= 10n;
+    }
+    minValue = value - v2;
+    mantissa = v ? 64 - clz64(v) : 1;
+    if (minBits > mantissa) {
+      mantissa = minBits;
+    }
+    rings = (mantissa + 1) >> 1;
+    for (i = 0; i < rings; i++) {
+      rsizes[i] = i < rings - 1 || !(mantissa & 1) ? 4 : 2;
+      npub += rsizes[i];
+      secidx[i] = Number((v >> BigInt(i * 2)) & 3n);
+    }
+    if (mantissa <= 0) throw new Error("Invalid mantissa value");
+    if ((v & ~(0xffffffffffffffffn >> BigInt(64 - mantissa))) !== 0n)
+      throw new Error("Did not get all the bits");
+  } else {
+    exp = 0;
+    minValue = value;
+    v = 0n;
+    npub = 2;
+  }
+
+  if (v * scale + minValue !== value) throw new Error("Invalid value");
+  if (rings <= 0 || rings > 32) throw new Error("Invalid number of rings");
+  if (npub > 128) throw new Error("Invalid number of public keys");
+
+  return {
+    rings,
+    rsizes,
+    npub,
+    secidx,
+    minValue,
+    mantissa,
+    scale,
+    minBits,
+    v,
+    exp,
+  };
+}
+
+const borromeanSign = async (e0: Uint8Array, s: bigint[], pubs: PointType<bigint>[], k: bigint[], sec: bigint[], rsizes: number[], secidx: number[], nrings: number, m: Uint8Array) => {
+  let rgej;
+  let tmp = new Uint8Array(33);
+  let count = 0;
+
+  if (!e0 || !s || !pubs || !k || !sec || !rsizes || !secidx || !nrings || !m) {
+    throw new Error("Invalid input");
+  }
+
+  const sha256_e0 = sha256.create();
+  for (let i = 0; i < nrings; i++) {
+    if (Number.MAX_SAFE_INTEGER - count < rsizes[i]) {
+      throw new Error("Integer overflow");
+    }
+
+    rgej = Point.BASE.multiply(k[i]);
+    if (rgej.equals(Point.ZERO)) {
+      return 0;
+    }
+
+    tmp = rgej.toRawBytes(true);
+
+    for (let j = secidx[i] + 1; j < rsizes[i]; j++) {
+      tmp = await borromeanHash(m, tmp, i, j);
+      let ens = bytesToNumberBE(tmp);
+      if (ens >= secp256k1N) ens = ens % secp256k1N;
+
+      rgej = pubs[count + j].multiply(ens).add(Point.BASE.multiply(s[count + j]));
+      if (rgej.equals(Point.ZERO)) {
+        return 0;
+      }
+
+      tmp = rgej.toRawBytes(true);
+    }
+
+    sha256_e0.update(tmp);
+    count += rsizes[i];
+  }
+
+  sha256_e0.update(m);
+  let digest = await sha256_e0.digest();
+  e0.set(digest);
+
+  count = 0;
+  for (let i = 0; i < nrings; i++) {
+    if (Number.MAX_SAFE_INTEGER - count < rsizes[i]) {
+      throw new Error("Integer overflow");
+    }
+
+    tmp = await borromeanHash(m, e0.slice(0, 32), i, 0);
+    let ens = bytesToNumberBE(tmp) % secp256k1N;
+
+    if (ens === 0n || ens >= secp256k1N) {
+      return 0;
+    }
+
+    for (let j = 0; j < secidx[i]; j++) {
+      rgej = pubs[count + j].multiply(ens).add(Point.BASE.multiply(s[count + j]));
+
+      if (rgej.equals(Point.ZERO)) {
+        return 0;
+      }
+
+      tmp = rgej.toRawBytes(true);
+      tmp = await borromeanHash(m, tmp, i, j + 1);
+      ens = bytesToNumberBE(tmp) % secp256k1N;
+
+      if (ens === 0n || ens >= secp256k1N) {
+        return 0;
+      }
+    }
+
+    s[count + secidx[i]] =
+      (secp256k1N - ((ens * sec[i]) % secp256k1N) + k[i]) % secp256k1N;
+
+    if (s[count + secidx[i]] === 0n) {
+      return 0;
+    }
+
+    count += rsizes[i];
+  }
+
+  return 1;
+}
+
+const rangeproofPubExpand = (pubs: PointType<bigint>[], exp: number, rsizes: number[], rings: number, genp: string) => {
+  var base = Point.fromHex(genp);
+  var i, j, npub;
+  if (exp < 0) {
+    exp = 0;
+  }
+
+  base = base.negate();
+
+  while (exp--) {
+    var tmp = base.double();
+    base = tmp.double().add(tmp);
+  }
+
+  npub = 0;
+  for (i = 0; i < rings; i++) {
+    for (j = 1; j < rsizes[i]; j++) {
+      pubs[npub + j] = pubs[npub + j - 1].add(base);
+    }
+    if (i < rings - 1) {
+      base = base.double().double();
+    }
+    npub += rsizes[i];
+  }
+}
+
+export const rangeproofSign = async (
+  minValue: bigint,
+  commit: string,
+  blind: string,
+  nonce: string,
+  exp: number,
+  minBits: number,
+  value: bigint,
+  msg: string,
+  extraCommit: string,
+  genp: string,
+) => {
+  let proof = new Uint8Array(5134);
+  let pubs = new Array(128);
+  let s = new Array(128);
+  let sec = new Array(32);
+  let k = new Array(32);
+  let sha256M = sha256.create();
+  let prep = new Uint8Array(4096);
+  let len;
+  let i;
+
+  let genP = Point.fromHex(genp);
+
+  len = 0;
+  if (minValue > value || minBits > 64 || minBits < 0 || exp < -1 || exp > 18) {
+    return 0;
+  }
+
+  let v, rings, rsizes, npub, secidx, mantissa, scale;
+  ({ v, rings, rsizes, npub, secidx, mantissa, scale, exp, minBits, minValue } = await rangeProveParams(minBits, minValue, exp, value));
+  
+  if (!v) return 0;
+
+  proof[len] = (rsizes[0] > 1 ? 64 | exp : 0) | (minValue ? 32 : 0);
+  len++;
+  if (rsizes[0] > 1) {
+    if (mantissa <= 0 || mantissa > 64) {
+      throw new Error("Mantissa out of range");
+    }
+    proof[len] = mantissa - 1;
+    len++;
+  }
+  if (minValue) {
+    for (i = 0; i < 8; i++) {
+      proof[len + i] = Number((minValue >> BigInt((7 - i) * 8)) & BigInt(255));
+    }
+    len += 8;
+  }
+  if (msg.length > 0 && msg.length > 128 * (rings - 1)) {
+    return 0;
+  }
+
+  sha256M.update(ensureBytes('commit', commit));
+  sha256M.update(serializePoint(genP));
+  sha256M.update(proof.slice(0, len));
+
+  prep.fill(0);
+  if (msg != null) {
+    prep.set(ensureBytes('msg', msg).slice(0, msg.length));
+  }
+
+  if (rsizes[rings - 1] > 1) {
+    let idx = rsizes[rings - 1] - 1;
+    idx -= Number(secidx[rings - 1] === idx);
+    idx = ((rings - 1) * 4 + idx) * 32;
+    for (i = 0; i < 8; i++) {
+      let n = Number((v >> BigInt(56 - i * 8)) & BigInt(255));
+      prep[8 + i + idx] = prep[16 + i + idx] = prep[24 + i + idx] = n;
+      prep[i + idx] = 0;
+    }
+    prep[idx] = 128;
+  }
+
+  if (
+    !(await rangeproofGenrand(
+      sec,
+      s,
+      prep,
+      rsizes,
+      rings,
+      nonce,
+      commit,
+      proof,
+      len,
+      genp,
+    ))
+  ) {
+    return 0;
+  }
+
+  prep.fill(0);
+  for (i = 0; i < rings; i++) {
+    k[i] = s[i * 4 + secidx[i]];
+    s[i * 4 + secidx[i]] = 0n;
+  }
+
+  let stmp = setScalarFromB32(ensureBytes('blind', blind));
+  sec[rings - 1] = (sec[rings - 1] + stmp) % secp256k1N;
+
+  let signs = new Uint8Array(proof.buffer, len, (rings + 6) >> 3);
+
+  for (i = 0; i < (rings + 6) >> 3; i++) {
+    signs[i] = 0;
+    len++;
+  }
+  npub = 0;
+  for (i = 0; i < rings; i++) {
+    let val = (BigInt(secidx[i]) * scale) << BigInt(i * 2);
+    let P1 = sec[i] ? Point.BASE.multiply(sec[i]) : Point.ZERO;
+    let P2 = secidx[i] ? genP.multiply(val) : Point.ZERO;
+    pubs[npub] = P1.add(P2);
+
+    if (pubs[npub].equals(Point.ZERO)) return 0;
+
+    if (i < rings - 1) {
+      var tmpc = serializePoint(pubs[npub]);
+      var quadness = tmpc[0];
+      sha256M.update(tmpc);
+      signs[i >> 3] |= quadness << (i & 7);
+      proof.set(tmpc.slice(1), len);
+      len += 32;
+    }
+    npub += rsizes[i];
+  }
+
+  rangeproofPubExpand(pubs, exp, rsizes, rings, genp);
+  if (extraCommit != null) {
+    sha256M.update(ensureBytes('extraCommit', extraCommit));
+  }
+  
+  let signed = await borromeanSign(
+    proof.subarray(len),
+    s,
+    pubs,
+    k,
+    sec,
+    rsizes,
+    secidx,
+    rings,
+    await sha256M.digest(),
+  );
+
+  if (!signed) return 0;
+
+  len += 32;
+  for (let i = 0; i < npub; i++) {
+    proof.set(numTo32b(s[i]), len);
+    len += 32;
+  }
+
+  proof = proof.slice(0, len);
+  return proof;
+}
+
+
+class RNG {
+  private k: Uint8Array;
+  private v: Uint8Array;
+  private retry: boolean;
+
+  constructor(k: Uint8Array, v: Uint8Array, retry = false) {
+    this.k = k;
+    this.v = v;
+    this.retry = retry;
+  }
+
+  static async create(key: Uint8Array): Promise<RNG> {
+    const zero = new Uint8Array([0x00]);
+    const one = new Uint8Array([0x01]);
+
+    let v = new Uint8Array(32).fill(0x01); // RFC6979 3.2.b.
+    let k = new Uint8Array(32).fill(0x00); // RFC6979 3.2.c.
+
+    // RFC6979 3.2.d.
+    k = hmac(sha256, k, Uint8Array.from([...v, ...zero, ...key]));
+    v = hmac(sha256, k, v);
+
+    // RFC6979 3.2.f.
+    k = hmac(sha256, k, Uint8Array.from([...v, ...one, ...key]));
+    v = hmac(sha256, k, v);
+
+    return new RNG(k, v, false);
+  }
+
+  async generate(out: Uint8Array, outlen: number): Promise<void> {
+    const zero = new Uint8Array([0x00]);
+    if (this.retry) {
+      this.k = hmac(sha256, this.k, Uint8Array.from([...this.v, ...zero]));
+      this.v = hmac(sha256, this.k, this.v);
+    }
+
+    while (outlen > 0) {
+      let now = outlen > 32 ? 32 : outlen;
+      this.v = hmac(sha256, this.k, this.v);
+      out.set(this.v.slice(0, now), out.length - outlen);
+      outlen -= now;
+    }
+
+    this.retry = true;
+  }
+
+  finalize(): void {
+    this.k.fill(0);
+    this.v.fill(0);
+    this.retry = false;
+  }
+}
+
+let negateScalar = (a: bigint) => {
+  if (a === 0n) {
+    return 0n;
+  }
+
+
+  let result = secp256k1N - a;
+
+  if (result < 0n) {
+    result += secp256k1N;
+  } else if (result >= secp256k1N) {
+    result -= secp256k1N;
+  }
+
+  return result;
+};
+
+async function rangeproofGenrand(
+  sec: bigint[],
+  s: bigint[],
+  message: Uint8Array,
+  rsizes: number[],
+  rings: number,
+  nonce: string,
+  commit: string,
+  proof: Uint8Array,
+  len: number,
+  gen: string,
+) {
+  let tmp = new Uint8Array(32);
+  let rngseed = new Uint8Array(32 + 33 + 33 + len);
+  let acc = 0n;
+  let ret = 1;
+  let npub = 0;
+
+  if (len > 10) {
+    throw new Error("Invalid length");
+  }
+
+  let slice = commit.slice(2);
+  const genP = Point.fromHex(gen);
+  const commitP = Point.fromHex("02" + slice);
+
+  rngseed.set(ensureBytes('nonce', nonce).slice(0, 32), 0);
+  rngseed.set(serializePoint(commitP), 32);
+  rngseed.set(serializePoint(genP), 32 + 33);
+  rngseed.set(proof.slice(0, len), 32 + 33 + 33);
+
+  let rng = await RNG.create(rngseed);
+
+  for (let i = 0; i < rings; i++) {
+    if (i < rings - 1) {
+      await rng.generate(tmp, 32);
+      do {
+        await rng.generate(tmp, 32);
+        sec[i] = bytesToNumberBE(tmp) % secp256k1N;
+      } while (bytesToNumberBE(tmp) > secp256k1N || sec[i] === 0n);
+      acc = (acc + sec[i]) % secp256k1N;
+    } else {
+      sec[i] = negateScalar(acc);
+    }
+
+    for (let j = 0; j < rsizes[i]; j++) {
+      await rng.generate(tmp, 32);
+      if (message) {
+        for (let b = 0; b < 32; b++) {
+          tmp[b] ^= message[(i * 4 + j) * 32 + b];
+          message[(i * 4 + j) * 32 + b] = tmp[b];
+        }
+      }
+      s[npub] = bytesToNumberBE(tmp) % secp256k1N;
+      ret &= Number(s[npub] !== 0n);
+      npub++;
+    }
+  }
+  acc = 0n;
+
+  return ret;
+}
+
+const setScalarFromB32 = (b32: Uint8Array) => {
+  if (b32.length !== 32) {
+    throw new Error("Input must be a 32-byte array");
+  }
+
+  const d0 = bytesToNumberBE(b32.slice(24, 32));
+  const d1 = bytesToNumberBE(b32.slice(16, 24));
+  const d2 = bytesToNumberBE(b32.slice(8, 16));
+  const d3 = bytesToNumberBE(b32.slice(0, 8));
+
+  let scalar = (d3 << 192n) | (d2 << 128n) | (d1 << 64n) | d0;
+
+  if (scalar >= secp256k1N) {
+    scalar -= secp256k1N;
+  }
+
+  return scalar;
+};
