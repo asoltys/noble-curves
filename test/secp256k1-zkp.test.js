@@ -21,7 +21,7 @@ describe('secp256k1 rangeproof sign', () => {
           commit
         } = vector;
 
-      const result = await rangeproofSign(
+      const result = rangeproofSign(
         BigInt(minval),
         commit,
         blind,

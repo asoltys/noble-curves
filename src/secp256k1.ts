@@ -301,7 +301,7 @@ function serializePoint(point: PointType<bigint>) {
   return data;
 }
 
-const borromeanHash = async (m: Uint8Array, e: Uint8Array, ridx: number, eidx: number) => {
+const borromeanHash = (m: Uint8Array, e: Uint8Array, ridx: number, eidx: number) => {
   const ring = new Uint8Array(4);
   const epos = new Uint8Array(4);
 
@@ -427,7 +427,7 @@ const rangeProveParams = (minBits: number, minValue: bigint, exp: number, value:
   };
 }
 
-const borromeanSign = async (e0: Uint8Array, s: bigint[], pubs: PointType<bigint>[], k: bigint[], sec: bigint[], rsizes: number[], secidx: number[], nrings: number, m: Uint8Array) => {
+const borromeanSign = (e0: Uint8Array, s: bigint[], pubs: PointType<bigint>[], k: bigint[], sec: bigint[], rsizes: number[], secidx: number[], nrings: number, m: Uint8Array) => {
   let rgej;
   let tmp = new Uint8Array(33);
   let count = 0;
@@ -450,7 +450,7 @@ const borromeanSign = async (e0: Uint8Array, s: bigint[], pubs: PointType<bigint
     tmp = rgej.toRawBytes(true);
 
     for (let j = secidx[i] + 1; j < rsizes[i]; j++) {
-      tmp = await borromeanHash(m, tmp, i, j);
+      tmp = borromeanHash(m, tmp, i, j);
       let ens = bytesToNumberBE(tmp);
       if (ens >= secp256k1N) ens = ens % secp256k1N;
 
@@ -467,7 +467,7 @@ const borromeanSign = async (e0: Uint8Array, s: bigint[], pubs: PointType<bigint
   }
 
   sha256_e0.update(m);
-  let digest = await sha256_e0.digest();
+  let digest = sha256_e0.digest();
   e0.set(digest);
 
   count = 0;
@@ -476,7 +476,7 @@ const borromeanSign = async (e0: Uint8Array, s: bigint[], pubs: PointType<bigint
       throw new Error("Integer overflow");
     }
 
-    tmp = await borromeanHash(m, e0.slice(0, 32), i, 0);
+    tmp = borromeanHash(m, e0.slice(0, 32), i, 0);
     let ens = bytesToNumberBE(tmp) % secp256k1N;
 
     if (ens === 0n || ens >= secp256k1N) {
@@ -491,7 +491,7 @@ const borromeanSign = async (e0: Uint8Array, s: bigint[], pubs: PointType<bigint
       }
 
       tmp = rgej.toRawBytes(true);
-      tmp = await borromeanHash(m, tmp, i, j + 1);
+      tmp = borromeanHash(m, tmp, i, j + 1);
       ens = bytesToNumberBE(tmp) % secp256k1N;
 
       if (ens === 0n || ens >= secp256k1N) {
@@ -538,7 +538,7 @@ const rangeproofPubExpand = (pubs: PointType<bigint>[], exp: number, rsizes: num
   }
 }
 
-export const rangeproofSign = async (
+export const rangeproofSign = (
   minValue: bigint,
   commit: string,
   blind: string,
@@ -564,13 +564,13 @@ export const rangeproofSign = async (
 
   len = 0;
   if (minValue > value || minBits > 64 || minBits < 0 || exp < -1 || exp > 18) {
-    return 0;
+    throw new Error("params out of range");
   }
 
   let v, rings, rsizes, npub, secidx, mantissa, scale;
-  ({ v, rings, rsizes, npub, secidx, mantissa, scale, exp, minBits, minValue } = await rangeProveParams(minBits, minValue, exp, value));
+  ({ v, rings, rsizes, npub, secidx, mantissa, scale, exp, minBits, minValue } = rangeProveParams(minBits, minValue, exp, value));
   
-  if (!v) return 0;
+  if (!v) throw new Error("mising value");
 
   proof[len] = (rsizes[0] > 1 ? 64 | exp : 0) | (minValue ? 32 : 0);
   len++;
@@ -588,7 +588,7 @@ export const rangeproofSign = async (
     len += 8;
   }
   if (msg.length > 0 && msg.length > 128 * (rings - 1)) {
-    return 0;
+    throw new Error("invalid message length")
   }
 
   sha256M.update(ensureBytes('commit', commit));
@@ -613,7 +613,7 @@ export const rangeproofSign = async (
   }
 
   if (
-    !(await rangeproofGenrand(
+    !(rangeproofGenrand(
       sec,
       s,
       prep,
@@ -626,7 +626,7 @@ export const rangeproofSign = async (
       genp,
     ))
   ) {
-    return 0;
+    throw new Error("failed to generate secrets");
   }
 
   prep.fill(0);
@@ -651,7 +651,7 @@ export const rangeproofSign = async (
     let P2 = secidx[i] ? genP.multiply(val) : Point.ZERO;
     pubs[npub] = P1.add(P2);
 
-    if (pubs[npub].equals(Point.ZERO)) return 0;
+    if (pubs[npub].equals(Point.ZERO)) throw new Error("Point at infinity")
 
     if (i < rings - 1) {
       var tmpc = serializePoint(pubs[npub]);
@@ -669,7 +669,7 @@ export const rangeproofSign = async (
     sha256M.update(ensureBytes('extraCommit', extraCommit));
   }
   
-  let signed = await borromeanSign(
+  let signed = borromeanSign(
     proof.subarray(len),
     s,
     pubs,
@@ -678,10 +678,10 @@ export const rangeproofSign = async (
     rsizes,
     secidx,
     rings,
-    await sha256M.digest(),
+    sha256M.digest(),
   );
 
-  if (!signed) return 0;
+  if (!signed) throw new Error("Signature failed")
 
   len += 32;
   for (let i = 0; i < npub; i++) {
@@ -720,7 +720,7 @@ class RNG {
     this.retry = retry;
   }
 
-  static async create(seed: Uint8Array): Promise<RNG> {
+  static create(seed: Uint8Array): RNG {
     const zero = new Uint8Array([0x00]);
     const one = new Uint8Array([0x01]);
 
@@ -768,7 +768,7 @@ class RNG {
   }
 }
 
-async function rangeproofGenrand(
+function rangeproofGenrand(
   sec: bigint[],
   s: bigint[],
   message: Uint8Array,
@@ -799,7 +799,7 @@ async function rangeproofGenrand(
   rngseed.set(serializePoint(genP), 32 + 33);
   rngseed.set(proof.slice(0, len), 32 + 33 + 33);
 
-  const rng = await RNG.create(rngseed);
+  const rng = RNG.create(rngseed);
 
   for (let i = 0; i < rings; i++) {
     if (i < rings - 1) {
