@@ -1,13 +1,12 @@
 import { deepStrictEqual } from 'node:assert';
 import { should, describe } from 'micro-should';
 import { bytesToHex as hex } from '@noble/hashes/utils';
-import { rangeproofSign } from '../esm/secp256k1.js';
+import { rangeproofSign } from '../src/secp256k1';
 
-import { default as rangeproofs } from './vectors/secp256k1/rangeproof.json' with { type: 'json' };
+import { default as v } from './vectors/secp256k1/rangeproof.json' with { type: 'json' };
 
 describe('secp256k1 rangeproof sign', () => {
   should('match the test vector from liquidjs-lib', async () => {
-    for (const vector of rangeproofs.valid) {
       const {
           value,
           minval,
@@ -19,7 +18,7 @@ describe('secp256k1 rangeproof sign', () => {
           script,
           msg,
           commit
-        } = vector;
+        } = v.sign;
 
       const result = rangeproofSign(
         BigInt(minval),
@@ -34,13 +33,6 @@ describe('secp256k1 rangeproof sign', () => {
         genp
       );
 
-      deepStrictEqual(hex(result), vector.expected)
-    }
+      deepStrictEqual(hex(result), v.sign.expected)
   });
 });
-
-// ESM is broken.
-import url from 'node:url';
-if (import.meta.url === url.pathToFileURL(process.argv[1]).href) {
-  should.run();
-}
