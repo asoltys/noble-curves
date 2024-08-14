@@ -36,3 +36,5 @@ describe('secp256k1 rangeproof sign', () => {
       deepStrictEqual(hex(result), v.sign.expected)
   });
 });
+
+should.run();
