@@ -289,15 +289,8 @@ export const encodeToCurve = /* @__PURE__ */ (() => htf.encodeToCurve)();
 
 function serializePoint(point: PointType<bigint>) {
   const data = new Uint8Array(33);
-  const yBigInt = BigInt(point.y);
-  data[0] = FpIsSquare(Fp)(yBigInt) ? 0x00 : 0x01;
-
-  const xBigInt = BigInt(point.x);
-  const xHex = xBigInt.toString(16).padStart(64, "0");
-  const xBytes = Uint8Array.from(Buffer.from(xHex, "hex"));
-
-  data.set(xBytes, 1);
-
+  data[0] = FpIsSquare(Fp)(point.y) ? 0x00 : 0x01;
+  data.set(numberToBytesBE(point.x, 32), 1);
   return data;
 }
 
