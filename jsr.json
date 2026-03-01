@@ -1,0 +1,39 @@
+{
+  "name": "@noble/curves",
+  "version": "2.0.1",
+  "exports": {
+    ".": "./src/index.ts",
+    "./abstract/bls.js": "./src/abstract/bls.ts",
+    "./abstract/curve.js": "./src/abstract/curve.ts",
+    "./abstract/edwards.js": "./src/abstract/edwards.ts",
+    "./abstract/fft.js": "./src/abstract/fft.ts",
+    "./abstract/hash-to-curve.js": "./src/abstract/hash-to-curve.ts",
+    "./abstract/modular.js": "./src/abstract/modular.ts",
+    "./abstract/montgomery.js": "./src/abstract/montgomery.ts",
+    "./abstract/oprf.js": "./src/abstract/oprf.ts",
+    "./abstract/poseidon.js": "./src/abstract/poseidon.ts",
+    "./abstract/tower.js": "./src/abstract/tower.ts",
+    "./abstract/weierstrass.js": "./src/abstract/weierstrass.ts",
+    "./bls12-381.js": "./src/bls12-381.ts",
+    "./bn254.js": "./src/bn254.ts",
+    "./ed448.js": "./src/ed448.ts",
+    "./ed25519.js": "./src/ed25519.ts",
+    "./misc.js": "./src/misc.ts",
+    "./nist.js": "./src/nist.ts",
+    "./secp256k1.js": "./src/secp256k1.ts",
+    "./utils.js": "./src/utils.ts",
+    "./webcrypto.js": "./src/webcrypto.ts"
+  },
+  "imports": {
+    "@noble/hashes": "jsr:@noble/hashes@^2.0.0"
+  },
+  "publish": {
+    "include": [
+      "src",
+      "jsr.json",
+      "LICENSE",
+      "README.md"
+    ]
+  },
+  "license": "MIT"
+}

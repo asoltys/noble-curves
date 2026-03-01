@@ -1,0 +1,58 @@
+import { isBytes } from '@noble/hashes/utils.js';
+import { describe, should } from '@paulmillr/jsbt/test.js';
+import { deepStrictEqual as eql } from 'node:assert';
+import { randomBytes } from 'node:crypto';
+import { ed25519, x25519 } from '../src/ed25519.ts';
+import { ed448, x448 } from '../src/ed448.ts';
+import { p256 as secp256r1, p384 as secp384r1, p521 as secp521r1 } from '../src/nist.ts';
+import { schnorr, secp256k1 } from '../src/secp256k1.ts';
+
+const CURVES = {
+  secp256k1,
+  secp256r1,
+  secp384r1,
+  secp521r1,
+  ed25519,
+  x25519,
+  ed448,
+  x448,
+  schnorr,
+};
+
+describe('info', () => {
+  for (const name in CURVES) {
+    const curve = CURVES[name];
+    describe(name, () => {
+      should('keys', () => {
+        const len = curve.lengths;
+        const privateKey = curve.utils.randomSecretKey();
+        eql(privateKey.length, len.secretKey);
+        const publicKey = curve.getPublicKey(privateKey);
+        eql(publicKey.length, len.publicKey);
+        if (curve.getSharedSecret) {
+          const shared = curve.getSharedSecret(privateKey, publicKey);
+          eql(shared.length, len.publicKey);
+        }
+        if (curve.sign) {
+          const msg = new Uint8Array([1, 2, 3]);
+          let sig = curve.sign(msg, privateKey);
+          if (!isBytes(sig)) sig = sig.toBytes();
+          // weierstrass uses compact signatures by default, so we know size
+          eql(sig.length, len.signature);
+          curve.verify(sig, msg, publicKey);
+        }
+        const seed = randomBytes(len.seed);
+        eql(curve.utils.randomSecretKey(seed), curve.utils.randomSecretKey(seed));
+        curve.getPublicKey(curve.utils.randomSecretKey(seed)); // doesn't throw
+      });
+      should('keygen', () => {
+        const seed = randomBytes(curve.lengths.seed);
+        const keys = curve.keygen(seed);
+        eql(keys.secretKey, curve.utils.randomSecretKey(seed));
+        eql(keys.publicKey, curve.getPublicKey(curve.utils.randomSecretKey(seed)));
+      });
+    });
+  }
+});
+
+should.runWhen(import.meta.url);

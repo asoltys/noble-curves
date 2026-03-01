@@ -1,4 +1,5 @@
 {
+  "extends": "@paulmillr/jsbt/tsconfig.json",
   "compilerOptions": {
     // Enable latest features
     "lib": ["ESNext"],

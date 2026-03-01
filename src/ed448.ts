@@ -1,36 +1,86 @@
-/*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
-import { shake256 } from '@noble/hashes/sha3';
-import { concatBytes, randomBytes, utf8ToBytes, wrapConstructor } from '@noble/hashes/utils';
-import { AffinePoint, Group } from './abstract/curve.js';
-import { ExtPointType, twistedEdwards } from './abstract/edwards.js';
-import { createHasher, expand_message_xof, htfBasicOpts } from './abstract/hash-to-curve.js';
-import { Field, isNegativeLE, mod, pow2 } from './abstract/modular.js';
-import { montgomery } from './abstract/montgomery.js';
-import {
-  bytesToHex,
-  bytesToNumberLE,
-  ensureBytes,
-  equalBytes,
-  Hex,
-  numberToBytesLE,
-} from './abstract/utils.js';
-
 /**
  * Edwards448 (not Ed448-Goldilocks) curve with following addons:
  * - X448 ECDH
  * - Decaf cofactor elimination
  * - Elligator hash-to-group / point indistinguishability
  * Conforms to RFC 8032 https://www.rfc-editor.org/rfc/rfc8032.html#section-5.2
+ * @module
  */
+/*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
+import { shake256 } from '@noble/hashes/sha3.js';
+import { concatBytes, hexToBytes, createHasher as wrapConstructor } from '@noble/hashes/utils.js';
+import type { AffinePoint } from './abstract/curve.ts';
+import {
+  eddsa,
+  edwards,
+  PrimeEdwardsPoint,
+  type EdDSA,
+  type EdDSAOpts,
+  type EdwardsOpts,
+  type EdwardsPoint,
+  type EdwardsPointCons,
+} from './abstract/edwards.ts';
+import {
+  _DST_scalar,
+  createHasher,
+  expand_message_xof,
+  type H2CDSTOpts,
+  type H2CHasher,
+  type H2CHasherBase,
+} from './abstract/hash-to-curve.ts';
+import { Field, FpInvertBatch, isNegativeLE, mod, pow2, type IField } from './abstract/modular.ts';
+import { montgomery, type MontgomeryECDH } from './abstract/montgomery.ts';
+import { createORPF, type OPRF } from './abstract/oprf.ts';
+import { abytes, asciiToBytes, bytesToNumberLE, equalBytes } from './utils.ts';
 
-const shake256_114 = wrapConstructor(() => shake256.create({ dkLen: 114 }));
-const shake256_64 = wrapConstructor(() => shake256.create({ dkLen: 64 }));
-const ed448P = BigInt(
-  '726838724295606890549323807888004534353641360687318060281490199180612328166730772686396383698676545930088884461843637361053498018365439'
+// edwards448 curve
+// a = 1n
+// d = Fp.neg(39081n)
+// Finite field 2n**448n - 2n**224n - 1n
+// Subgroup order
+// 2n**446n - 13818066809895115352007386748515426880336692474882178609894547503885n
+const ed448_CURVE_p = BigInt(
+  '0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
 );
+const ed448_CURVE: EdwardsOpts = /* @__PURE__ */ (() => ({
+  p: ed448_CURVE_p,
+  n: BigInt(
+    '0x3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3'
+  ),
+  h: BigInt(4),
+  a: BigInt(1),
+  d: BigInt(
+    '0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffff6756'
+  ),
+  Gx: BigInt(
+    '0x4f1970c66bed0ded221d15a622bf36da9e146570470f1767ea6de324a3d3a46412ae1af72ab66511433b80e18b00938e2626a82bc70cc05e'
+  ),
+  Gy: BigInt(
+    '0x693f46716eb6bc248876203756c9c7624bea73736ca3984087789c1e05a0c2d73ad3ff1ce67c39c4fdbd132c4ed7c8ad9808795bf230fa14'
+  ),
+}))();
+
+// E448 NIST curve is identical to edwards448, except for:
+// d = 39082/39081
+// Gx = 3/2
+const E448_CURVE: EdwardsOpts = /* @__PURE__ */ (() =>
+  Object.assign({}, ed448_CURVE, {
+    d: BigInt(
+      '0xd78b4bdc7f0daf19f24f38c29373a2ccad46157242a50f37809b1da3412a12e79ccc9c81264cfe9ad080997058fb61c4243cc32dbaa156b9'
+    ),
+    Gx: BigInt(
+      '0x79a70b2b70400553ae7c9df416c792c61128751ac92969240c25a07d728bdc93e21f7787ed6972249de732f38496cd11698713093e9c04fc'
+    ),
+    Gy: BigInt(
+      '0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffff80000000000000000000000000000000000000000000000000000001'
+    ),
+  }))();
+
+const shake256_114 = /* @__PURE__ */ wrapConstructor(() => shake256.create({ dkLen: 114 }));
+const shake256_64 = /* @__PURE__ */ wrapConstructor(() => shake256.create({ dkLen: 64 }));
 
 // prettier-ignore
-const _1n = BigInt(1), _2n = BigInt(2), _3n = BigInt(3), _4n = BigInt(4), _11n = BigInt(11);
+const _1n = BigInt(1), _2n = BigInt(2), _3n = BigInt(3), _4n = /* @__PURE__ */ BigInt(4), _11n = BigInt(11);
 // prettier-ignore
 const _22n = BigInt(22), _44n = BigInt(44), _88n = BigInt(88), _223n = BigInt(223);
 
@@ -38,7 +88,7 @@ const _22n = BigInt(22), _44n = BigInt(44), _88n = BigInt(88), _223n = BigInt(22
 // Used for efficient square root calculation.
 // ((P-3)/4).toString(2) would produce bits [223x 1, 0, 222x 1]
 function ed448_pow_Pminus3div4(x: bigint): bigint {
-  const P = ed448P;
+  const P = ed448_CURVE_p;
   const b2 = (x * x * x) % P;
   const b3 = (b2 * b2 * x) % P;
   const b6 = (pow2(b3, _3n, P) * b3) % P;
@@ -55,12 +105,11 @@ function ed448_pow_Pminus3div4(x: bigint): bigint {
 }
 
 function adjustScalarBytes(bytes: Uint8Array): Uint8Array {
-  // Section 5: Likewise, for X448, set the two least significant bits of the first byte to 0, and the most
-  // significant bit of the last byte to 1.
+  // Section 5: Likewise, for X448, set the two least significant bits of the first byte to 0,
   bytes[0] &= 252; // 0b11111100
   // and the most significant bit of the last byte to 1.
   bytes[55] |= 128; // 0b10000000
-  // NOTE: is is NOOP for 56 bytes scalars (X25519/X448)
+  // NOTE: is NOOP for 56 bytes scalars (X25519/X448)
   bytes[56] = 0; // Byte outside of group (456 buts vs 448 bits)
   return bytes;
 }
@@ -68,7 +117,7 @@ function adjustScalarBytes(bytes: Uint8Array): Uint8Array {
 // Constant-time ratio of u to v. Allows to combine inversion and square root u/√v.
 // Uses algo from RFC8032 5.1.3.
 function uvRatio(u: bigint, v: bigint): { isValid: boolean; value: bigint } {
-  const P = ed448P;
+  const P = ed448_CURVE_p;
   // https://www.rfc-editor.org/rfc/rfc8032#section-5.2.3
   // To compute the square root of (u/v), the first step is to compute the
   //   candidate root x = (u/v)^((p+1)/4).  This can be done using the
@@ -87,92 +136,83 @@ function uvRatio(u: bigint, v: bigint): { isValid: boolean; value: bigint } {
   return { isValid: mod(x2 * v, P) === u, value: x };
 }
 
-const Fp = Field(ed448P, 456, true);
+// Finite field 2n**448n - 2n**224n - 1n
+// The value fits in 448 bits, but we use 456-bit (57-byte) elements because of bitflags.
+// - ed25519 fits in 255 bits, allowing using last 1 byte for specifying bit flag of point negation.
+// - ed448 fits in 448 bits. We can't use last 1 byte: we can only use a bit 224 in the middle.
+const Fp = /* @__PURE__ */ (() => Field(ed448_CURVE_p, { BITS: 456, isLE: true }))();
+const Fn = /* @__PURE__ */ (() => Field(ed448_CURVE.n, { BITS: 456, isLE: true }))();
+// decaf448 uses 448-bit (56-byte) keys
+const Fp448 = /* @__PURE__ */ (() => Field(ed448_CURVE_p, { BITS: 448, isLE: true }))();
+const Fn448 = /* @__PURE__ */ (() => Field(ed448_CURVE.n, { BITS: 448, isLE: true }))();
 
-const ED448_DEF = {
-  // Param: a
-  a: BigInt(1),
-  // -39081. Negative number is P - number
-  d: BigInt(
-    '726838724295606890549323807888004534353641360687318060281490199180612328166730772686396383698676545930088884461843637361053498018326358'
-  ),
-  // Finite field 𝔽p over which we'll do calculations; 2n**448n - 2n**224n - 1n
-  Fp,
-  // Subgroup order: how many points curve has;
-  // 2n**446n - 13818066809895115352007386748515426880336692474882178609894547503885n
-  n: BigInt(
-    '181709681073901722637330951972001133588410340171829515070372549795146003961539585716195755291692375963310293709091662304773755859649779'
-  ),
-  // RFC 7748 has 56-byte keys, RFC 8032 has 57-byte keys
-  nBitLength: 456,
-  // Cofactor
-  h: BigInt(4),
-  // Base point (x, y) aka generator point
-  Gx: BigInt(
-    '224580040295924300187604334099896036246789641632564134246125461686950415467406032909029192869357953282578032075146446173674602635247710'
-  ),
-  Gy: BigInt(
-    '298819210078481492676017930443930673437544040154080242095928241372331506189835876003536878655418784733982303233503462500531545062832660'
-  ),
-  // SHAKE256(dom4(phflag,context)||x, 114)
-  hash: shake256_114,
-  randomBytes,
-  adjustScalarBytes,
-  // dom4
-  domain: (data: Uint8Array, ctx: Uint8Array, phflag: boolean) => {
-    if (ctx.length > 255) throw new Error(`Context is too big: ${ctx.length}`);
-    return concatBytes(
-      utf8ToBytes('SigEd448'),
-      new Uint8Array([phflag ? 1 : 0, ctx.length]),
-      ctx,
-      data
-    );
-  },
-  uvRatio,
-} as const;
+// SHAKE256(dom4(phflag,context)||x, 114)
+function dom4(data: Uint8Array, ctx: Uint8Array, phflag: boolean) {
+  if (ctx.length > 255) throw new Error('context must be smaller than 255, got: ' + ctx.length);
+  return concatBytes(
+    asciiToBytes('SigEd448'),
+    new Uint8Array([phflag ? 1 : 0, ctx.length]),
+    ctx,
+    data
+  );
+}
+const ed448_Point = /* @__PURE__ */ edwards(ed448_CURVE, { Fp, Fn, uvRatio });
 
-export const ed448 = /* @__PURE__ */ twistedEdwards(ED448_DEF);
-// NOTE: there is no ed448ctx, since ed448 supports ctx by default
-export const ed448ph = /* @__PURE__ */ twistedEdwards({ ...ED448_DEF, prehash: shake256_64 });
+function ed4(opts: EdDSAOpts) {
+  return eddsa(ed448_Point, shake256_114, Object.assign({ adjustScalarBytes, domain: dom4 }, opts));
+}
 
-export const x448 = /* @__PURE__ */ (() =>
-  montgomery({
-    a: BigInt(156326),
-    // RFC 7748 has 56-byte keys, RFC 8032 has 57-byte keys
-    montgomeryBits: 448,
-    nByteLength: 56,
-    P: ed448P,
-    Gu: BigInt(5),
+/**
+ * ed448 EdDSA curve and methods.
+ * @example
+ * ```js
+ * import { ed448 } from '@noble/curves/ed448.js';
+ * const { secretKey, publicKey } = ed448.keygen();
+ * // const publicKey = ed448.getPublicKey(secretKey);
+ * const msg = new TextEncoder().encode('hello noble');
+ * const sig = ed448.sign(msg, secretKey);
+ * const isValid = ed448.verify(sig, msg, publicKey);
+ * ```
+ */
+export const ed448: EdDSA = /* @__PURE__ */ ed4({});
+
+// There is no ed448ctx, since ed448 supports ctx by default
+/** Prehashed version of ed448. See {@link ed448} */
+export const ed448ph: EdDSA = /* @__PURE__ */ ed4({ prehash: shake256_64 });
+/**
+ * E448 (NIST) != edwards448 used in ed448.
+ * E448 is birationally equivalent to edwards448.
+ */
+export const E448: EdwardsPointCons = /* @__PURE__ */ edwards(E448_CURVE);
+
+/**
+ * ECDH using curve448 aka x448.
+ *
+ * @example
+ * ```js
+ * import { x448 } from '@noble/curves/ed448.js';
+ * const alice = x448.keygen();
+ * const bob = x448.keygen();
+ * const shared = x448.getSharedSecret(alice.secretKey, bob.publicKey);
+ * ```
+ */
+export const x448: MontgomeryECDH = /* @__PURE__ */ (() => {
+  const P = ed448_CURVE_p;
+  return montgomery({
+    P,
+    type: 'x448',
     powPminus2: (x: bigint): bigint => {
-      const P = ed448P;
       const Pminus3div4 = ed448_pow_Pminus3div4(x);
-      const Pminus3 = pow2(Pminus3div4, BigInt(2), P);
+      const Pminus3 = pow2(Pminus3div4, _2n, P);
       return mod(Pminus3 * x, P); // Pminus3 * x = Pminus2
     },
     adjustScalarBytes,
-    randomBytes,
-  }))();
-
-/**
- * Converts edwards448 public key to x448 public key. Uses formula:
- * * `(u, v) = ((y-1)/(y+1), sqrt(156324)*u/x)`
- * * `(x, y) = (sqrt(156324)*u/v, (1+u)/(1-u))`
- * @example
- *   const aPub = ed448.getPublicKey(utils.randomPrivateKey());
- *   x448.getSharedSecret(edwardsToMontgomery(aPub), edwardsToMontgomery(someonesPub))
- */
-export function edwardsToMontgomeryPub(edwardsPub: string | Uint8Array): Uint8Array {
-  const { y } = ed448.ExtendedPoint.fromHex(edwardsPub);
-  const _1n = BigInt(1);
-  return Fp.toBytes(Fp.create((y - _1n) * Fp.inv(y + _1n)));
-}
-
-export const edwardsToMontgomery = edwardsToMontgomeryPub; // deprecated
-// TODO: add edwardsToMontgomeryPriv, similar to ed25519 version
+  });
+})();
 
 // Hash To Curve Elligator2 Map
-const ELL2_C1 = (Fp.ORDER - BigInt(3)) / BigInt(4); // 1. c1 = (q - 3) / 4         # Integer arithmetic
-const ELL2_J = BigInt(156326);
+const ELL2_C1 = /* @__PURE__ */ (() => (ed448_CURVE_p - BigInt(3)) / BigInt(4))(); // 1. c1 = (q - 3) / 4         # Integer arithmetic
+const ELL2_J = /* @__PURE__ */ BigInt(156326);
 
 function map_to_curve_elligator2_curve448(u: bigint) {
   let tv1 = Fp.sqr(u); // 1.  tv1 = u^2
@@ -243,60 +283,45 @@ function map_to_curve_elligator2_edwards448(u: bigint) {
   yEn = Fp.cmov(yEn, Fp.ONE, e); // 36. yEn = CMOV(yEn, 1, e)
   yEd = Fp.cmov(yEd, Fp.ONE, e); // 37. yEd = CMOV(yEd, 1, e)
 
-  const inv = Fp.invertBatch([xEd, yEd]); // batch division
+  const inv = FpInvertBatch(Fp, [xEd, yEd], true); // batch division
   return { x: Fp.mul(xEn, inv[0]), y: Fp.mul(yEn, inv[1]) }; // 38. return (xEn, xEd, yEn, yEd)
 }
 
-const htf = /* @__PURE__ */ (() =>
-  createHasher(
-    ed448.ExtendedPoint,
-    (scalars: bigint[]) => map_to_curve_elligator2_edwards448(scalars[0]),
-    {
-      DST: 'edwards448_XOF:SHAKE256_ELL2_RO_',
-      encodeDST: 'edwards448_XOF:SHAKE256_ELL2_NU_',
-      p: Fp.ORDER,
-      m: 1,
-      k: 224,
-      expand: 'xof',
-      hash: shake256,
-    }
-  ))();
-export const hashToCurve = /* @__PURE__ */ (() => htf.hashToCurve)();
-export const encodeToCurve = /* @__PURE__ */ (() => htf.encodeToCurve)();
-
-function assertDcfPoint(other: unknown) {
-  if (!(other instanceof DcfPoint)) throw new Error('DecafPoint expected');
-}
+/** Hashing / encoding to ed448 points / field. RFC 9380 methods. */
+export const ed448_hasher: H2CHasher<EdwardsPointCons> = /* @__PURE__ */ (() =>
+  createHasher(ed448_Point, (scalars: bigint[]) => map_to_curve_elligator2_edwards448(scalars[0]), {
+    DST: 'edwards448_XOF:SHAKE256_ELL2_RO_',
+    encodeDST: 'edwards448_XOF:SHAKE256_ELL2_NU_',
+    p: ed448_CURVE_p,
+    m: 1,
+    k: 224,
+    expand: 'xof',
+    hash: shake256,
+  }))();
 
 // 1-d
-const ONE_MINUS_D = BigInt('39082');
+const ONE_MINUS_D = /* @__PURE__ */ BigInt('39082');
 // 1-2d
-const ONE_MINUS_TWO_D = BigInt('78163');
+const ONE_MINUS_TWO_D = /* @__PURE__ */ BigInt('78163');
 // √(-d)
-const SQRT_MINUS_D = BigInt(
+const SQRT_MINUS_D = /* @__PURE__ */ BigInt(
   '98944233647732219769177004876929019128417576295529901074099889598043702116001257856802131563896515373927712232092845883226922417596214'
 );
 // 1 / √(-d)
-const INVSQRT_MINUS_D = BigInt(
+const INVSQRT_MINUS_D = /* @__PURE__ */ BigInt(
   '315019913931389607337177038330951043522456072897266928557328499619017160722351061360252776265186336876723201881398623946864393857820716'
 );
 // Calculates 1/√(number)
 const invertSqrt = (number: bigint) => uvRatio(_1n, number);
 
-const MAX_448B = BigInt(
-  '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
-);
-const bytes448ToNumberLE = (bytes: Uint8Array) =>
-  ed448.CURVE.Fp.create(bytesToNumberLE(bytes) & MAX_448B);
-
-type ExtendedPoint = ExtPointType;
-
-// Computes Elligator map for Decaf
-// https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-ristretto255-decaf448-07#name-element-derivation-2
-function calcElligatorDecafMap(r0: bigint): ExtendedPoint {
-  const { d } = ed448.CURVE;
-  const P = ed448.CURVE.Fp.ORDER;
-  const mod = ed448.CURVE.Fp.create;
+/**
+ * Elligator map for hash-to-curve of decaf448.
+ * Described in [RFC9380](https://www.rfc-editor.org/rfc/rfc9380#appendix-C)
+ * and [RFC9496](https://www.rfc-editor.org/rfc/rfc9496#name-element-derivation-2).
+ */
+function calcElligatorDecafMap(r0: bigint): EdwardsPoint {
+  const { d, p: P } = ed448_CURVE;
+  const mod = (n: bigint) => Fp448.create(n);
 
   const r = mod(-(r0 * r0)); // 1
   const u0 = mod(d * (r - _1n)); // 2
@@ -319,59 +344,57 @@ function calcElligatorDecafMap(r0: bigint): ExtendedPoint {
   const W1 = mod(s2 + _1n); // 9
   const W2 = mod(s2 - _1n); // 10
   const W3 = mod(v_prime * s * (r - _1n) * ONE_MINUS_TWO_D + sgn); // 11
-  return new ed448.ExtendedPoint(mod(W0 * W3), mod(W2 * W1), mod(W1 * W3), mod(W0 * W2));
+  return new ed448_Point(mod(W0 * W3), mod(W2 * W1), mod(W1 * W3), mod(W0 * W2));
 }
 
 /**
- * Each ed448/ExtendedPoint has 4 different equivalent points. This can be
+ * Each ed448/EdwardsPoint has 4 different equivalent points. This can be
  * a source of bugs for protocols like ring signatures. Decaf was created to solve this.
- * Decaf point operates in X:Y:Z:T extended coordinates like ExtendedPoint,
+ * Decaf point operates in X:Y:Z:T extended coordinates like EdwardsPoint,
  * but it should work in its own namespace: do not combine those two.
- * https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-ristretto255-decaf448
+ * See [RFC9496](https://www.rfc-editor.org/rfc/rfc9496).
  */
-class DcfPoint implements Group<DcfPoint> {
-  static BASE: DcfPoint;
-  static ZERO: DcfPoint;
-  // Private property to discourage combining ExtendedPoint + DecafPoint
-  // Always use Decaf encoding/decoding instead.
-  constructor(private readonly ep: ExtendedPoint) {}
+class _DecafPoint extends PrimeEdwardsPoint<_DecafPoint> {
+  // The following gymnastics is done because typescript strips comments otherwise
+  // prettier-ignore
+  static BASE: _DecafPoint =
+    /* @__PURE__ */ (() => new _DecafPoint(ed448_Point.BASE).multiplyUnsafe(_2n))();
+  // prettier-ignore
+  static ZERO: _DecafPoint =
+    /* @__PURE__ */ (() => new _DecafPoint(ed448_Point.ZERO))();
+  // prettier-ignore
+  static Fp: IField<bigint> =
+    /* @__PURE__ */ (() => Fp448)();
+  // prettier-ignore
+  static Fn: IField<bigint> =
+    /* @__PURE__ */ (() => Fn448)();
 
-  static fromAffine(ap: AffinePoint<bigint>) {
-    return new DcfPoint(ed448.ExtendedPoint.fromAffine(ap));
+  constructor(ep: EdwardsPoint) {
+    super(ep);
   }
 
-  /**
-   * Takes uniform output of 112-byte hash function like shake256 and converts it to `DecafPoint`.
-   * The hash-to-group operation applies Elligator twice and adds the results.
-   * **Note:** this is one-way map, there is no conversion from point to hash.
-   * https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-ristretto255-decaf448-07#name-element-derivation-2
-   * @param hex 112-byte output of a hash function
-   */
-  static hashToCurve(hex: Hex): DcfPoint {
-    hex = ensureBytes('decafHash', hex, 112);
-    const r1 = bytes448ToNumberLE(hex.slice(0, 56));
-    const R1 = calcElligatorDecafMap(r1);
-    const r2 = bytes448ToNumberLE(hex.slice(56, 112));
-    const R2 = calcElligatorDecafMap(r2);
-    return new DcfPoint(R1.add(R2));
+  static fromAffine(ap: AffinePoint<bigint>): _DecafPoint {
+    return new _DecafPoint(ed448_Point.fromAffine(ap));
   }
 
-  /**
-   * Converts decaf-encoded string to decaf point.
-   * https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-ristretto255-decaf448-07#name-decode-2
-   * @param hex Decaf-encoded 56 bytes. Not every 56-byte string is valid decaf encoding
-   */
-  static fromHex(hex: Hex): DcfPoint {
-    hex = ensureBytes('decafHex', hex, 56);
-    const { d } = ed448.CURVE;
-    const P = ed448.CURVE.Fp.ORDER;
-    const mod = ed448.CURVE.Fp.create;
-    const emsg = 'DecafPoint.fromHex: the hex is not valid encoding of DecafPoint';
-    const s = bytes448ToNumberLE(hex);
+  protected assertSame(other: _DecafPoint): void {
+    if (!(other instanceof _DecafPoint)) throw new Error('DecafPoint expected');
+  }
+
+  protected init(ep: EdwardsPoint): _DecafPoint {
+    return new _DecafPoint(ep);
+  }
+
+  static fromBytes(bytes: Uint8Array): _DecafPoint {
+    abytes(bytes, 56);
+    const { d, p: P } = ed448_CURVE;
+    const mod = (n: bigint) => Fp448.create(n);
+    const s = Fp448.fromBytes(bytes);
 
     // 1. Check that s_bytes is the canonical encoding of a field element, or else abort.
     // 2. Check that s is non-negative, or else abort
-    if (!equalBytes(numberToBytesLE(s, 56), hex) || isNegativeLE(s, P)) throw new Error(emsg);
+    if (!equalBytes(Fn448.toBytes(s), bytes) || isNegativeLE(s, P))
+      throw new Error('invalid decaf448 encoding 1');
 
     const s2 = mod(s * s); // 1
     const u1 = mod(_1n + s2); // 2
@@ -387,94 +410,116 @@ class DcfPoint implements Group<DcfPoint> {
     const y = mod((_1n - s2) * invsqrt * u1); // 7
     const t = mod(x * y); // 8
 
-    if (!isValid) throw new Error(emsg);
-    return new DcfPoint(new ed448.ExtendedPoint(x, y, _1n, t));
+    if (!isValid) throw new Error('invalid decaf448 encoding 2');
+    return new _DecafPoint(new ed448_Point(x, y, _1n, t));
+  }
+
+  /**
+   * Converts decaf-encoded string to decaf point.
+   * Described in [RFC9496](https://www.rfc-editor.org/rfc/rfc9496#name-decode-2).
+   * @param hex Decaf-encoded 56 bytes. Not every 56-byte string is valid decaf encoding
+   */
+  static fromHex(hex: string): _DecafPoint {
+    return _DecafPoint.fromBytes(hexToBytes(hex));
   }
 
   /**
    * Encodes decaf point to Uint8Array.
-   * https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-ristretto255-decaf448-07#name-encode-2
+   * Described in [RFC9496](https://www.rfc-editor.org/rfc/rfc9496#name-encode-2).
    */
-  toRawBytes(): Uint8Array {
-    let { ex: x, ey: _y, ez: z, et: t } = this.ep;
-    const P = ed448.CURVE.Fp.ORDER;
-    const mod = ed448.CURVE.Fp.create;
-
-    const u1 = mod(mod(x + t) * mod(x - t)); // 1
-    const x2 = mod(x * x);
+  toBytes(): Uint8Array {
+    const { X, Z, T } = this.ep;
+    const P = ed448_CURVE.p;
+    const mod = (n: bigint) => Fp448.create(n);
+    const u1 = mod(mod(X + T) * mod(X - T)); // 1
+    const x2 = mod(X * X);
     const { value: invsqrt } = invertSqrt(mod(u1 * ONE_MINUS_D * x2)); // 2
-
     let ratio = mod(invsqrt * u1 * SQRT_MINUS_D); // 3
     if (isNegativeLE(ratio, P)) ratio = mod(-ratio);
-
-    const u2 = mod(INVSQRT_MINUS_D * ratio * z - t); // 4
-
-    let s = mod(ONE_MINUS_D * invsqrt * x * u2); // 5
+    const u2 = mod(INVSQRT_MINUS_D * ratio * Z - T); // 4
+    let s = mod(ONE_MINUS_D * invsqrt * X * u2); // 5
     if (isNegativeLE(s, P)) s = mod(-s);
-
-    return numberToBytesLE(s, 56);
+    return Fn448.toBytes(s);
   }
 
-  toHex(): string {
-    return bytesToHex(this.toRawBytes());
-  }
-
-  toString(): string {
-    return this.toHex();
-  }
-
-  // Compare one point to another.
-  // https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-ristretto255-decaf448-07#name-equals-2
-  equals(other: DcfPoint): boolean {
-    assertDcfPoint(other);
-    const { ex: X1, ey: Y1 } = this.ep;
-    const { ex: X2, ey: Y2 } = other.ep;
-    const mod = ed448.CURVE.Fp.create;
+  /**
+   * Compare one point to another.
+   * Described in [RFC9496](https://www.rfc-editor.org/rfc/rfc9496#name-equals-2).
+   */
+  equals(other: _DecafPoint): boolean {
+    this.assertSame(other);
+    const { X: X1, Y: Y1 } = this.ep;
+    const { X: X2, Y: Y2 } = other.ep;
     // (x1 * y2 == y1 * x2)
-    return mod(X1 * Y2) === mod(Y1 * X2);
+    return Fp448.create(X1 * Y2) === Fp448.create(Y1 * X2);
   }
 
-  add(other: DcfPoint): DcfPoint {
-    assertDcfPoint(other);
-    return new DcfPoint(this.ep.add(other.ep));
-  }
-
-  subtract(other: DcfPoint): DcfPoint {
-    assertDcfPoint(other);
-    return new DcfPoint(this.ep.subtract(other.ep));
-  }
-
-  multiply(scalar: bigint): DcfPoint {
-    return new DcfPoint(this.ep.multiply(scalar));
-  }
-
-  multiplyUnsafe(scalar: bigint): DcfPoint {
-    return new DcfPoint(this.ep.multiplyUnsafe(scalar));
-  }
-
-  double(): DcfPoint {
-    return new DcfPoint(this.ep.double());
-  }
-
-  negate(): DcfPoint {
-    return new DcfPoint(this.ep.negate());
+  is0(): boolean {
+    return this.equals(_DecafPoint.ZERO);
   }
 }
 
-export const DecafPoint = /* @__PURE__ */ (() => {
-  // decaf448 base point is ed448 base x 2
-  // https://github.com/dalek-cryptography/curve25519-dalek/blob/59837c6ecff02b77b9d5ff84dbc239d0cf33ef90/vendor/ristretto.sage#L699
-  if (!DcfPoint.BASE) DcfPoint.BASE = new DcfPoint(ed448.ExtendedPoint.BASE).multiply(_2n);
-  if (!DcfPoint.ZERO) DcfPoint.ZERO = new DcfPoint(ed448.ExtendedPoint.ZERO);
-  return DcfPoint;
-})();
+export const decaf448: {
+  Point: typeof _DecafPoint;
+} = { Point: _DecafPoint };
 
-// Hashing to decaf448. https://www.rfc-editor.org/rfc/rfc9380#appendix-C
-export const hashToDecaf448 = (msg: Uint8Array, options: htfBasicOpts) => {
-  const d = options.DST;
-  const DST = typeof d === 'string' ? utf8ToBytes(d) : d;
-  const uniform_bytes = expand_message_xof(msg, DST, 112, 224, shake256);
-  const P = DcfPoint.hashToCurve(uniform_bytes);
-  return P;
+/** Hashing to decaf448 points / field. RFC 9380 methods. */
+export const decaf448_hasher: H2CHasherBase<typeof _DecafPoint> = {
+  Point: _DecafPoint,
+  hashToCurve(msg: Uint8Array, options?: H2CDSTOpts): _DecafPoint {
+    const DST = options?.DST || 'decaf448_XOF:SHAKE256_D448MAP_RO_';
+    return decaf448_hasher.deriveToCurve!(expand_message_xof(msg, DST, 112, 224, shake256));
+  },
+  /**
+   * Warning: has big modulo bias of 2^-64.
+   * RFC is invalid. RFC says "use 64-byte xof", while for 2^-112 bias
+   * it must use 84-byte xof (56+56/2), not 64.
+   */
+  hashToScalar(msg: Uint8Array, options: H2CDSTOpts = { DST: _DST_scalar }): bigint {
+    // Can't use `Fn448.fromBytes()`. 64-byte input => 56-byte field element
+    const xof = expand_message_xof(msg, options.DST, 64, 256, shake256);
+    return Fn448.create(bytesToNumberLE(xof));
+  },
+  /**
+   * HashToCurve-like construction based on RFC 9496 (Element Derivation).
+   * Converts 112 uniform random bytes into a curve point.
+   *
+   * WARNING: This represents an older hash-to-curve construction, preceding the finalization of RFC 9380.
+   * It was later reused as a component in the newer `hash_to_ristretto255` function defined in RFC 9380.
+   */
+  deriveToCurve(bytes: Uint8Array): _DecafPoint {
+    abytes(bytes, 112);
+    const skipValidation = true;
+    // Note: Similar to the field element decoding described in
+    // [RFC7748], and unlike the field element decoding described in
+    // Section 5.3.1, non-canonical values are accepted.
+    const r1 = Fp448.create(Fp448.fromBytes(bytes.subarray(0, 56), skipValidation));
+    const R1 = calcElligatorDecafMap(r1);
+    const r2 = Fp448.create(Fp448.fromBytes(bytes.subarray(56, 112), skipValidation));
+    const R2 = calcElligatorDecafMap(r2);
+    return new _DecafPoint(R1.add(R2));
+  },
 };
-export const hash_to_decaf448 = hashToDecaf448; // legacy
+
+/** decaf448 OPRF, defined in RFC 9497. */
+export const decaf448_oprf: OPRF = /* @__PURE__ */ (() =>
+  createORPF({
+    name: 'decaf448-SHAKE256',
+    Point: _DecafPoint,
+    hash: (msg: Uint8Array) => shake256(msg, { dkLen: 64 }),
+    hashToGroup: decaf448_hasher.hashToCurve,
+    hashToScalar: decaf448_hasher.hashToScalar,
+  }))();
+
+/**
+ * Weird / bogus points, useful for debugging.
+ * Unlike ed25519, there is no ed448 generator point which can produce full T subgroup.
+ * Instead, there is a Klein four-group, which spans over 2 independent 2-torsion points:
+ * (0, 1), (0, -1), (-1, 0), (1, 0).
+ */
+export const ED448_TORSION_SUBGROUP: string[] = [
+  '010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000',
+  'fefffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffff00',
+  '000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000',
+  '000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080',
+];

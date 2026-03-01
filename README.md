@@ -2,19 +2,21 @@
 
 Audited & minimal JS implementation of elliptic curve cryptography.
 
-- 🔒 [**Audited**](#security) by an independent security firms
+- 🔒 [**Audited**](#security) by independent security firms
 - 🔻 Tree-shakeable: unused code is excluded from your builds
 - 🏎 Fast: hand-optimized for caveats of JS engines
-- 🔍 Reliable: property-based / cross-library / wycheproof tests and fuzzing ensure correctness
-- ➰ Short Weierstrass, Edwards, Montgomery curves
-- ✍️ ECDSA, EdDSA, Schnorr, BLS signature schemes, ECDH key agreement, hashing to curves
-- 🔖 SUF-CMA, SBS (non-repudiation), ZIP215 (consensus friendliness) features for ed25519
-- 🧜‍♂️ Poseidon ZK-friendly hash
-- 🪶 178KB (87KB gzipped) for everything including bundled hashes, 22KB (10KB gzipped) for single-curve build
+- 🔍 Reliable: cross-library / wycheproof tests and fuzzing ensure correctness
+- ➰ Weierstrass, Edwards, Montgomery curves; ECDSA, EdDSA, Schnorr, BLS signatures
+- ✍️ ECDH, hash-to-curve, OPRF, Poseidon ZK-friendly hash
+- 🔖 Non-repudiation (SUF-CMA, SBS) & consensus-friendliness (ZIP215) in ed25519, ed448
+- 🥈 Optional, friendly wrapper over native WebCrypto
+- 🪶 29KB (gzipped) including bundled hashes, 11KB for single-curve build
 
-For discussions, questions and support, visit
-[GitHub Discussions](https://github.com/paulmillr/noble-curves/discussions)
-section of the repository.
+Curves have 5kb sister projects
+[secp256k1](https://github.com/paulmillr/noble-secp256k1) & [ed25519](https://github.com/paulmillr/noble-ed25519).
+They have smaller attack surface, but less features.
+
+Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-curves/discussions) for questions and support.
 
 ### This library belongs to _noble_ cryptography
 
@@ -28,249 +30,363 @@ section of the repository.
   [curves](https://github.com/paulmillr/noble-curves),
   [hashes](https://github.com/paulmillr/noble-hashes),
   [post-quantum](https://github.com/paulmillr/noble-post-quantum),
-  4kb [secp256k1](https://github.com/paulmillr/noble-secp256k1) /
+  5kb [secp256k1](https://github.com/paulmillr/noble-secp256k1) /
   [ed25519](https://github.com/paulmillr/noble-ed25519)
-- [Check out homepage](https://paulmillr.com/noble/)
-  for reading resources, documentation and apps built with noble
+- [Check out the homepage](https://paulmillr.com/noble/)
+  for reading resources, documentation, and apps built with noble
 
 ## Usage
 
-> npm install @noble/curves
+> `npm install @noble/curves`
+
+> `deno add jsr:@noble/curves`
 
 We support all major platforms and runtimes.
-For [Deno](https://deno.land), ensure to use [npm specifier](https://deno.land/manual@v1.28.0/node/npm_specifiers).
 For React Native, you may need a [polyfill for getRandomValues](https://github.com/LinusU/react-native-get-random-values).
 A standalone file [noble-curves.js](https://github.com/paulmillr/noble-curves/releases) is also available.
 
-```js
+```ts
 // import * from '@noble/curves'; // Error: use sub-imports, to ensure small app size
-import { secp256k1 } from '@noble/curves/secp256k1'; // ESM and Common.js
-// import { secp256k1 } from 'npm:@noble/curves@1.4.0/secp256k1'; // Deno
+import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
+import { ed25519, ed25519ph, ed25519ctx, x25519, ristretto255 } from '@noble/curves/ed25519.js';
+import { ed448, ed448ph, x448, decaf448 } from '@noble/curves/ed448.js';
+import { p256, p384, p521 } from '@noble/curves/nist.js';
+import { bls12_381 } from '@noble/curves/bls12-381.js';
+import { bn254 } from '@noble/curves/bn254.js';
+import { jubjub, babyjubjub, brainpoolP256r1, brainpoolP384r1, brainpoolP512r1 } from '@noble/curves/misc.js';
+
+// hash-to-curve
+import { secp256k1_hasher } from '@noble/curves/secp256k1.js';
+import { p256_hasher, p384_hasher, p521_hasher } from '@noble/curves/nist.js';
+import { ristretto255_hasher } from '@noble/curves/ed25519.js';
+import { decaf448_hasher } from '@noble/curves/ed448.js';
+
+// OPRFs
+import { p256_oprf, p384_oprf, p521_oprf } from '@noble/curves/nist.js';
+import { ristretto255_oprf } from '@noble/curves/ed25519.js';
+import { decaf448_oprf } from '@noble/curves/ed448.js';
+
+// utils
+import { bytesToHex, hexToBytes, concatBytes } from '@noble/curves/abstract/utils.js';
+import { Field } from '@noble/curves/abstract/modular.js';
+import { weierstrass, ecdsa } from '@noble/curves/abstract/weierstrass.js';
+import { edwards, eddsa } from '@noble/curves/abstract/edwards.js';
+import { poseidon, poseidonSponge } from '@noble/curves/abstract/poseidon.js';
+import { FFT, poly } from '@noble/curves/abstract/fft.js';
 ```
 
-- [Implementations](#implementations)
-  - [ECDSA signatures over secp256k1 and others](#ecdsa-signatures-over-secp256k1-and-others)
-  - [ECDSA public key recovery & extra entropy](#ecdsa-public-key-recovery--extra-entropy)
-  - [ECDH: Elliptic Curve Diffie-Hellman](#ecdh-elliptic-curve-diffie-hellman)
-  - [Schnorr signatures over secp256k1, BIP340](#schnorr-signatures-over-secp256k1-bip340)
-  - [ed25519, X25519, ristretto255](#ed25519-x25519-ristretto255)
-  - [ed448, X448, decaf448](#ed448-x448-decaf448)
-  - [bls12-381](#bls12-381)
-  - [bn254 aka alt_bn128](#bn254-aka-alt_bn128)
-  - [All available imports](#all-available-imports)
-  - [Accessing a curve's variables](#accessing-a-curves-variables)
-- [Abstract API](#abstract-api)
-  - [weierstrass: Short Weierstrass curve](#weierstrass-short-weierstrass-curve)
-  - [edwards: Twisted Edwards curve](#edwards-twisted-edwards-curve)
-  - [montgomery: Montgomery curve](#montgomery-montgomery-curve)
-  - [bls: Boneh-Lynn-Shacham signatures](#bls-boneh-lynn-shacham-signatures)
-  - [hash-to-curve: Hashing strings to curve points](#hash-to-curve-hashing-strings-to-curve-points)
-  - [poseidon: Poseidon hash](#poseidon-poseidon-hash)
-  - [modular: Modular arithmetics utilities](#modular-modular-arithmetics-utilities)
-    - [Creating private keys from hashes](#creating-private-keys-from-hashes)
-  - [utils: Useful utilities](#utils-useful-utilities)
+- Examples
+  - [ECDSA, EdDSA, Schnorr signatures](#ecdsa-eddsa-schnorr-signatures)
+    - [secp256k1, p256, p384, p521, ed25519, ed448, brainpool](#secp256k1-p256-p384-p521-ed25519-ed448-brainpool)
+    - [ristretto255, decaf448](#ristretto255-decaf448)
+    - [Prehashed signing](#prehashed-signing)
+    - [Recovering public keys from signatures](#recovering-public-keys-from-signatures)
+    - [Hedged ECDSA with noise](#hedged-ecdsa-with-noise)
+    - [Consensus-friendliness vs e-voting](#consensus-friendliness-vs-e-voting)
+  - [ECDH: Diffie-Hellman shared secrets](#ecdh-diffie-hellman-shared-secrets)
+  - [webcrypto: Friendly wrapper](#webcrypto-friendly-wrapper)
+  - [BLS signatures, bls12-381, bn254 aka alt\_bn128](#bls-signatures-bls12-381-bn254-aka-alt_bn128)
+  - [Hashing to curve points](#hash-to-curve-hashing-to-curve-points)
+  - [OPRFs](#oprfs)
+  - [Poseidon hash](#poseidon-poseidon-hash)
+  - [Fast Fourier Transform](#fft-fast-fourier-transform)
+  - [utils](#utils-byte-shuffling-conversion)
+- [Internals](#internals)
+  - [Elliptic curve Point math](#elliptic-curve-point-math)
+  - [modular: Modular arithmetics \& finite fields](#modular-modular-arithmetics--finite-fields)
+  - [weierstrass: Custom Weierstrass curve](#weierstrass-custom-weierstrass-curve)
+  - [edwards: Custom Edwards curve](#edwards-custom-edwards-curve)
+  - [Custom ECDSA instance](#custom-ecdsa-instance)
 - [Security](#security)
 - [Speed](#speed)
-- [Upgrading](#upgrading)
 - [Contributing & testing](#contributing--testing)
-- [Resources](#resources)
+- [Upgrading](#upgrading)
 
-### Implementations
+### ECDSA, EdDSA, Schnorr signatures
 
-Implementations use [noble-hashes](https://github.com/paulmillr/noble-hashes).
-If you want to use a different hashing library, [abstract API](#abstract-api) doesn't depend on them.
+#### secp256k1, p256, p384, p521, ed25519, ed448, brainpool
 
-#### ECDSA signatures over secp256k1 and others
+```js
+import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
+import { p256, p384, p521 } from '@noble/curves/nist.js';
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { ed448 } from '@noble/curves/ed448.js';
+import { brainpoolP256r1, brainpoolP384r1, brainpoolP512r1 } from '@noble/curves/misc.js';
+for (const curve of [
+  secp256k1, schnorr,
+  p256, p384, p521,
+  ed25519, ed448,
+  brainpoolP256r1, brainpoolP384r1, brainpoolP512r1
+]) {
+  const { secretKey, publicKey } = curve.keygen();
+  const msg = new TextEncoder().encode('hello noble');
+  const sig = curve.sign(msg, secretKey);
+  const isValid = curve.verify(sig, msg, publicKey);
+  console.log(curve, secretKey, publicKey, sig, isValid);
+}
 
-```ts
-import { secp256k1 } from '@noble/curves/secp256k1';
-// import { p256 } from '@noble/curves/p256'; // or p384 / p521
-
-const priv = secp256k1.utils.randomPrivateKey();
-const pub = secp256k1.getPublicKey(priv);
-const msg = new Uint8Array(32).fill(1); // message hash (not message) in ecdsa
-const sig = secp256k1.sign(msg, priv); // `{prehash: true}` option is available
-const isValid = secp256k1.verify(sig, msg, pub) === true;
-
-// hex strings are also supported besides Uint8Array-s:
-const privHex = '46c930bc7bb4db7f55da20798697421b98c4175a52c630294d75a84b9c126236';
-const pub2 = secp256k1.getPublicKey(privHex);
+// Specific private key
+import { hexToBytes } from '@noble/curves/utils.js';
+const secret2 = hexToBytes('46c930bc7bb4db7f55da20798697421b98c4175a52c630294d75a84b9c126236');
+const pub2 = secp256k1.getPublicKey(secret2);
 ```
 
-The same code would work for NIST P256 (secp256r1), P384 (secp384r1) & P521 (secp521r1).
+ECDSA signatures use deterministic k, conforming to [RFC 6979](https://www.rfc-editor.org/rfc/rfc6979).
+EdDSA conforms to [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032).
+Schnorr (secp256k1-only) conforms to [BIP 340](https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki).
 
-#### ECDSA public key recovery & extra entropy
+Messages are always hashed first.
+
+#### ristretto255, decaf448
 
 ```ts
-// let sig = secp256k1.Signature.fromCompact(sigHex); // or .fromDER(sigDERHex)
-// sig = sig.addRecoveryBit(bit); // bit is not serialized into compact / der format
-sig.recoverPublicKey(msg).toRawBytes(); // === pub; // public key recovery
+import { ristretto255, ristretto255_hasher, ristretto255_oprf } from '@noble/curves/ed25519.js';
+import { decaf448, decaf448_hasher, decaf448_oprf } from '@noble/curves/ed448.js';
 
-// extraEntropy https://moderncrypto.org/mail-archive/curves/2017/000925.html
-const sigImprovedSecurity = secp256k1.sign(msg, priv, { extraEntropy: true });
+console.log(ristretto255.Point, decaf448.Point);
 ```
 
-#### ECDH: Elliptic Curve Diffie-Hellman
+Check out [RFC 9496](https://www.rfc-editor.org/rfc/rfc9496) more info on ristretto255 & decaf448.
+Check out separate documentation for [Point](#elliptic-curve-point-math), [hasher](#hash-to-curve-hashing-to-curve-points) and [oprf](#oprfs).
 
-```ts
-// 1. The output includes parity byte. Strip it using shared.slice(1)
-// 2. The output is not hashed. More secure way is sha256(shared) or hkdf(shared)
-const someonesPub = secp256k1.getPublicKey(secp256k1.utils.randomPrivateKey());
-const shared = secp256k1.getSharedSecret(priv, someonesPub);
+#### Prehashed signing
+
+```js
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { keccak256 } from '@noble/hashes/sha3.js';
+const { secretKey } = curve.keygen();
+const msg = new TextEncoder().encode('hello noble');
+// prehash: true (default) - hash using secp256k1.hash (sha256)
+const sig = secp256k1.sign(msg, secretKey);
+// prehash: false - hash using custom hash
+const sigKeccak = secp256k1.sign(keccak256(msg), secretKey, { prehash: false });
 ```
 
-#### Schnorr signatures over secp256k1 (BIP340)
+Default sign() and verify() behavior (`prehash: true`) applies built-in hash function to message first.
+For secp256k1 that's sha256, for p521 that's sha512.
 
-```ts
-import { schnorr } from '@noble/curves/secp256k1';
-const priv = schnorr.utils.randomPrivateKey();
-const pub = schnorr.getPublicKey(priv);
-const msg = new TextEncoder().encode('hello');
-const sig = schnorr.sign(msg, priv);
-const isValid = schnorr.verify(sig, msg, pub);
+Providing `prehash: false` allows user to specify their own hash function (e.g. use secp256k1 + keccak256).
+
+> [!NOTE]
+> Previously, in noble-curves v1, `prehash: false` was the default.
+> Some other libraries (like libsecp256k1) have no prehashing.
+
+#### Recovering public keys from signatures
+
+```js
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+const { secretKey, publicKey } = curve.keygen();
+const msg = new TextEncoder().encode('hello noble');
+const sigRec = secp256k1.sign(msg, secretKey, { format: 'recovered' });
+const publicKey_ = secp256k1.recoverPublicKey(sigRec, msg); // == publicKey
+
+// recovered sig is compact sig with an extra byte
+const sigNoRec = secp256k1.sign(msg, secretKey, { format: 'compact' });
+// sigNoRec == sigRec.slice(1)
+
+// Signature instance
+const sigInstance = secp256k1.Signature.fromBytes(sigRec, 'recovered');
 ```
 
-#### ed25519, X25519, ristretto255
+Public key recovery - only supported with ECDSA.
 
-```ts
-import { ed25519 } from '@noble/curves/ed25519';
-const priv = ed25519.utils.randomPrivateKey();
-const pub = ed25519.getPublicKey(priv);
-const msg = new TextEncoder().encode('hello');
-const sig = ed25519.sign(msg, priv);
-ed25519.verify(sig, msg, pub); // Default mode: follows ZIP215
-ed25519.verify(sig, msg, pub, { zip215: false }); // RFC8032 / FIPS 186-5
+> [!NOTE]
+> Key recovery is a simple math operation.
+> There are no guarantees the signing was actually done.
+> It's possible to forge signature and msg hash (r, s, h), which would
+> recover into a random public key, but it's not feasible
+> to find m which would lead to this specific forged h.
+
+#### Hedged ECDSA with noise
+
+```js
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+const { secretKey } = curve.keygen();
+const msg = new TextEncoder().encode('hello noble');
+// extraEntropy: false - default, hedging disabled
+const sigNoisy = secp256k1.sign(msg, secretKey);
+// extraEntropy: true - fetch 32 random bytes from CSPRNG
+const sigNoisy = secp256k1.sign(msg, secretKey, { extraEntropy: true });
+// extraEntropy: bytes - specific extra entropy
+const ent = Uint8Array.from([0xca, 0xfe, 0x01, 0x23]);
+const sigNoisy2 = secp256k1.sign(msg, secretKey, { extraEntropy: ent });
 ```
 
-Default `verify` behavior follows [ZIP215](https://zips.z.cash/zip-0215) and
-[can be used in consensus-critical applications](https://hdevalence.ca/blog/2020-10-04-its-25519am).
-It has SUF-CMA (strong unforgeability under chosen message attacks).
-`zip215: false` option switches verification criteria to strict
-[RFC8032](https://www.rfc-editor.org/rfc/rfc8032) / [FIPS 186-5](https://csrc.nist.gov/publications/detail/fips/186/5/final)
-and additionally provides [non-repudiation with SBS](#edwards-twisted-edwards-curve).
+ECDSA `sign()` allows providing `extraEntropy`, which switches sig generation to hedged mode.
 
-X25519 follows [RFC7748](https://www.rfc-editor.org/rfc/rfc7748).
+By default, ECDSA signatures are generated deterministically,
+following [RFC 6979](https://www.rfc-editor.org/rfc/rfc6979).
+However, purely deterministic signatures are vulnerable to fault attacks.
+Newer signature schemes, such as BIP340 schnorr, switched to hedged signatures because of this.
+Hedging is basically incorporating some randomness into sig generation process.
 
-```ts
-// Variants from RFC8032: with context, prehashed
-import { ed25519ctx, ed25519ph } from '@noble/curves/ed25519';
+For more info, check out
+[Deterministic signatures are not your friends](https://paulmillr.com/posts/deterministic-signatures/),
+[RFC 6979](https://www.rfc-editor.org/rfc/rfc6979) section 3.6,
+and [cfrg-det-sigs-with-noise draft](https://datatracker.ietf.org/doc/draft-irtf-cfrg-det-sigs-with-noise/).
 
-// ECDH using curve25519 aka x25519
-import { x25519 } from '@noble/curves/ed25519';
-const priv = 'a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4';
-const pub = 'e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c';
-x25519.getSharedSecret(priv, pub) === x25519.scalarMult(priv, pub); // aliases
-x25519.getPublicKey(priv) === x25519.scalarMultBase(priv);
-x25519.getPublicKey(x25519.utils.randomPrivateKey());
+#### Consensus-friendliness vs e-voting
 
-// ed25519 => x25519 conversion
-import { edwardsToMontgomeryPub, edwardsToMontgomeryPriv } from '@noble/curves/ed25519';
-edwardsToMontgomeryPub(ed25519.getPublicKey(ed25519.utils.randomPrivateKey()));
-edwardsToMontgomeryPriv(ed25519.utils.randomPrivateKey());
+```js
+import { ed25519 } from '@noble/curves/ed25519.js';
+const { secretKey, publicKey } = ed25519.keygen();
+const msg = new TextEncoder().encode('hello noble');
+const sig = ed25519.sign(msg, secretKey);
+// zip215: true
+const isValid = ed25519.verify(sig, msg, pub);
+// SBS / e-voting / RFC8032 / FIPS 186-5
+const isValidRfc = ed25519.verify(sig, msg, pub, { zip215: false });
 ```
 
-ristretto255 follows [irtf draft](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-ristretto255-decaf448).
+> [!NOTE]
+> Most other libraries don't have SUF-CMA & SBS - less optimal choice for their security.
 
-```ts
-// hash-to-curve, ristretto255
-import { utf8ToBytes } from '@noble/hashes/utils';
-import { sha512 } from '@noble/hashes/sha512';
-import {
-  hashToCurve,
-  encodeToCurve,
-  RistrettoPoint,
-  hashToRistretto255,
-} from '@noble/curves/ed25519';
+In ed25519, there is an ability to choose between consensus-friendliness vs e-voting mode.
 
-const msg = utf8ToBytes('Ristretto is traditionally a short shot of espresso coffee');
-hashToCurve(msg);
+* `zip215: true` (default) uses the more permissive, [consensus-friendly](https://hdevalence.ca/blog/2020-10-04-its-25519am) verification rules defined in [ZIP215](https://zips.z.cash/zip-0215).
+* `zip215: false` enforces strict [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032) / [FIPS 186-5](https://csrc.nist.gov/publications/detail/fips/186/5/final) verification and adds SBS-based non-repudiation, which is useful for:
+    * **Contract signing:** prevents a signer from later claiming they signed a different document
+    * **E-voting:** stops voters from choosing keys that let them repudiate their vote
+    * **Blockchains:** avoids signatures valid for multiple transactions (e.g., amount X also validating amount Y)
 
-const rp = RistrettoPoint.fromHex(
-  '6a493210f7499cd17fecb510ae0cea23a110e8d5b901f8acadd3095c73a3b919'
-);
-RistrettoPoint.BASE.multiply(2n).add(rp).subtract(RistrettoPoint.BASE).toRawBytes();
-RistrettoPoint.ZERO.equals(dp) === false;
-// pre-hashed hash-to-curve
-RistrettoPoint.hashToCurve(sha512(msg));
-// full hash-to-curve including domain separation tag
-hashToRistretto255(msg, { DST: 'ristretto255_XMD:SHA-512_R255MAP_RO_' });
+Both modes have SUF-CMA (strong unforgeability under chosen message attacks).
+See [Taming the many EdDSAs](https://eprint.iacr.org/2020/1244) for more info.
+
+### ECDH: Diffie-Hellman shared secrets
+
+```js
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { x25519 } from '@noble/curves/ed25519.js';
+import { x448 } from '@noble/curves/ed448.js';
+import { p256, p384, p521 } from '@noble/curves/nist.js';
+
+for (const curve of [secp256k1, schnorr, x25519, x448, p256, p384, p521]) {
+  const alice = curve.keygen();
+  const bob = curve.keygen();
+  const sharedKey = curve.getSharedSecret(alice.secretKey, bob.publicKey);
+  console.log('alice', alice, 'bob', bob, 'shared', sharedKey);
+}
+
+// x25519 & x448 specific methods
+import { ed25519 } from '@noble/curves/ed25519.js';
+const alice = ed25519.keygen();
+const bob = ed25519.keygen();
+const aliceSecX = ed25519.utils.toMontgomerySecret(alice.secretKey);
+const bobPubX = ed25519.utils.toMontgomery(bob.publicKey);
+const sharedKey = x25519.getSharedSecret(aliceSecX, bobPubX);
 ```
 
-#### ed448, X448, decaf448
+We provide ECDH over all Weierstrass curves, and over 2 Montgomery curves
+X25519 (Curve25519) & X448 (Curve448), conforming to [RFC 7748](https://www.rfc-editor.org/rfc/rfc7748).
 
-```ts
-import { ed448 } from '@noble/curves/ed448';
-const priv = ed448.utils.randomPrivateKey();
-const pub = ed448.getPublicKey(priv);
-const msg = new TextEncoder().encode('whatsup');
-const sig = ed448.sign(msg, priv);
-ed448.verify(sig, msg, pub);
+In Weierstrass curves, shared secrets:
 
-// Variants from RFC8032: prehashed
-import { ed448ph } from '@noble/curves/ed448';
+- Include y-parity bytes: use `key.slice(1)` to strip it
+- Are not hashed: use hashing or KDF on top, like `sha256(shared)` or `hkdf(shared)`
+
+#### webcrypto: Friendly wrapper
+
+> [!NOTE]
+> Webcrypto methods are always async.
+
+##### webcrypto signatures
+
+```js
+import { ed25519, ed448, p256, p384, p521 } from './src/webcrypto.ts';
+
+(async () => {
+  for (let [name, curve] of Object.entries({ p256, p384, p521, ed25519, ed448 })) {
+    console.log('curve', name);
+    if (!await curve.isSupported()) {
+      console.log('is not supported, skipping');
+      continue;
+    }
+    const keys = await curve.keygen();
+    const msg = new TextEncoder().encode('hello noble');
+    const sig = await curve.sign(msg, keys.secretKey);
+    const isValid = await curve.verify(sig, msg, keys.publicKey);
+    console.log({
+      keys, msg, sig, isValid
+    });
+  }
+})();
 ```
 
-ECDH using Curve448 aka X448, follows [RFC7748](https://www.rfc-editor.org/rfc/rfc7748).
+##### webcrypto ecdh
 
-```ts
-import { x448 } from '@noble/curves/ed448';
-x448.getSharedSecret(priv, pub) === x448.scalarMult(priv, pub); // aliases
-x448.getPublicKey(priv) === x448.scalarMultBase(priv);
+```js
+import { p256, p384, p521, x25519, x448 } from './src/webcrypto.ts';
 
-// ed448 => x448 conversion
-import { edwardsToMontgomeryPub } from '@noble/curves/ed448';
-edwardsToMontgomeryPub(ed448.getPublicKey(ed448.utils.randomPrivateKey()));
+(async () => {
+  for (let [name, curve] of Object.entries({ p256, p384, p521, x25519, x448 })) {
+    console.log('curve', name);
+    if (!await curve.isSupported()) {
+      console.log('is not supported, skipping');
+      continue;
+    }
+    const alice = await curve.keygen();
+    const bob = await curve.keygen();
+    const shared = await curve.getSharedSecret(alice.secretKey, bob.publicKey);
+    const shared2 = await curve.getSharedSecret(bob.secretKey, alice.publicKey);
+    console.log({shared});
+  }
+})();
 ```
 
-decaf448 follows [irtf draft](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-ristretto255-decaf448).
+##### Key conversion from noble to webcrypto and back
 
-```ts
-import { utf8ToBytes } from '@noble/hashes/utils';
-import { shake256 } from '@noble/hashes/sha3';
-import { hashToCurve, encodeToCurve, DecafPoint, hashToDecaf448 } from '@noble/curves/ed448';
-
-const msg = utf8ToBytes('Ristretto is traditionally a short shot of espresso coffee');
-hashToCurve(msg);
-
-const dp = DecafPoint.fromHex(
-  'c898eb4f87f97c564c6fd61fc7e49689314a1f818ec85eeb3bd5514ac816d38778f69ef347a89fca817e66defdedce178c7cc709b2116e75'
-);
-DecafPoint.BASE.multiply(2n).add(dp).subtract(DecafPoint.BASE).toRawBytes();
-DecafPoint.ZERO.equals(dp) === false;
-// pre-hashed hash-to-curve
-DecafPoint.hashToCurve(shake256(msg, { dkLen: 112 }));
-// full hash-to-curve including domain separation tag
-hashToDecaf448(msg, { DST: 'decaf448_XOF:SHAKE256_D448MAP_RO_' });
+```js
+import { p256 as p256n } from './src/nist.ts';
+import { p256 } from './src/webcrypto.ts';
+(async () => {
+  const nobleKeys = p256n.keygen();
+  // convert noble keys to webcrypto
+  const webKeys = {
+    secretKey: await p256.utils.convertSecretKey(nobleKeys.secretKey, 'raw', 'pkcs8'),
+    publicKey: await p256.utils.convertPublicKey(nobleKeys.publicKey, 'raw', 'spki')
+  };
+  // convert webcrypto keys to noble
+  const nobleKeys2 = {
+    secretKey: await p256.utils.convertSecretKey(webKeys.secretKey, 'pkcs8', 'raw'),
+    publicKey: await p256.utils.convertPublicKey(webKeys.publicKey, 'spki', 'raw')
+  };
+})();
 ```
 
-Same RFC7748 / RFC8032 / IRTF draft are followed.
+Check out [micro-key-producer](https://github.com/paulmillr/micro-key-producer) for
+pure JS key conversion utils.
 
-#### bls12-381
+### BLS signatures, bls12-381, bn254 aka alt_bn128
 
 ```ts
-import { bls12_381 as bls } from '@noble/curves/bls12-381';
+import { bls12_381 } from '@noble/curves/bls12-381.js';
 
-// G1 keys, G2 signatures
-const privateKey = '67d53f170b908cabb9eb326c3c337762d59289a8fec79f7bc9254b584b73265c';
-const message = '64726e3da8';
-const publicKey = bls.getPublicKey(privateKey);
-const signature = bls.sign(message, privateKey);
-const isValid = bls.verify(signature, message, publicKey);
-console.log({ publicKey, signature, isValid });
+// G1 pubkeys, G2 sigs
+const blsl = bls12_381.longSignatures;
+const { secretKey, publicKey } = blsl.keygen();
+// const publicKey = blsl.getPublicKey(secretKey);
+const msg = new TextEncoder().encode('hello noble');
+// default DST
+const msgp = blsl.hash(msg);
+// custom DST (Ethereum)
+const msgpd = blsl.hash(msg, 'BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_');
+const signature = blsl.sign(msgp, secretKey);
+const isValid = blsl.verify(signature, msgp, publicKey);
+console.log('long', { publicKey, signature, isValid });
 
-// G2 signatures, G1 keys
-// getPublicKeyForShortSignatures(privateKey)
-// signShortSignature(message, privateKey)
-// verifyShortSignature(signature, message, publicKey)
-// aggregateShortSignatures(signatures)
-
-// Custom DST
-const htfEthereum = { DST: 'BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_' };
-const signatureEth = bls.sign(message, privateKey, htfEthereum);
-const isValidEth = bls.verify(signature, message, publicKey, htfEthereum);
+// G1 sigs, G2 pubkeys
+const blss = bls12_381.shortSignatures;
+const publicKey2 = blss.getPublicKey(secretKey);
+const msgp2 = blss.hash(msg, 'BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_');
+const signature2 = blss.sign(msgp2, secretKey);
+const isValid2 = blss.verify(signature2, msgp2, publicKey2);
+console.log({ publicKey2, signature2, isValid2 });
 
 // Aggregation
-const aggregatedKey = bls.aggregatePublicKeys([bls.utils.randomPrivateKey(), bls.utils.randomPrivateKey()])
+const aggregatedKey = bls12_381.longSignatures.aggregatePublicKeys([
+  bls12_381.utils.randomSecretKey(),
+  bls12_381.utils.randomSecretKey(),
+]);
 // const aggregatedSig = bls.aggregateSignatures(sigs)
 
 // Pairings, with and without final exponentiation
@@ -279,690 +395,592 @@ const aggregatedKey = bls.aggregatePublicKeys([bls.utils.randomPrivateKey(), bls
 // bls.fields.Fp12.finalExponentiate(bls.fields.Fp12.mul(PointG1, PointG2));
 
 // Others
-// bls.G1.ProjectivePoint.BASE, bls.G2.ProjectivePoint.BASE;
+// bls.G1.Point.BASE, bls.G2.Point.BASE;
 // bls.fields.Fp, bls.fields.Fp2, bls.fields.Fp12, bls.fields.Fr;
 ```
 
 See [abstract/bls](#bls-barreto-lynn-scott-curves).
 For example usage, check out [the implementation of BLS EVM precompiles](https://github.com/ethereumjs/ethereumjs-monorepo/blob/361f4edbc239e795a411ac2da7e5567298b9e7e5/packages/evm/src/precompiles/bls12_381/noble.ts).
 
-#### bn254 aka alt_bn128
-
-```ts
-import { bn254 } from '@noble/curves/bn254';
-
-console.log(
-  bn254.G1,
-  bn254.G2,
-  bn254.pairing
-)
-```
-
-The API mirrors [BLS](#bls12-381). The curve was previously called alt_bn128.
+The BN254 API mirrors [BLS](#bls12-381). The curve was previously called alt_bn128.
 The implementation is compatible with [EIP-196](https://eips.ethereum.org/EIPS/eip-196) and
 [EIP-197](https://eips.ethereum.org/EIPS/eip-197).
 
-Keep in mind that we don't implement Point methods toHex / toRawBytes. It's because
-different implementations of bn254 do it differently - there is no standard. Points of divergence:
+For BN254 usage, check out [the implementation of bn254 EVM precompiles](https://github.com/paulmillr/noble-curves/blob/3ed792f8ad9932765b84d1064afea8663a255457/test/bn254.test.js#L697).
+We don't implement Point methods toBytes. To work around this limitation, has to initialize points on their own from BigInts. Reason it's not implemented is because [there is no standard](https://github.com/privacy-scaling-explorations/halo2curves/issues/109).
+Points of divergence:
 
 - Endianness: LE vs BE (byte-swapped)
 - Flags as first hex bits (similar to BLS) vs no-flags
 - Imaginary part last in G2 vs first (c0, c1 vs c1, c0)
 
-For example usage, check out [the implementation of bn254 EVM precompiles](https://github.com/paulmillr/noble-curves/blob/3ed792f8ad9932765b84d1064afea8663a255457/test/bn254.test.js#L697).
-
-#### All available imports
-
-```typescript
-import { secp256k1, schnorr } from '@noble/curves/secp256k1';
-import { ed25519, ed25519ph, ed25519ctx, x25519, RistrettoPoint } from '@noble/curves/ed25519';
-import { ed448, ed448ph, ed448ctx, x448 } from '@noble/curves/ed448';
-import { p256 } from '@noble/curves/p256';
-import { p384 } from '@noble/curves/p384';
-import { p521 } from '@noble/curves/p521';
-import { pallas, vesta } from '@noble/curves/pasta';
-import { bls12_381 } from '@noble/curves/bls12-381';
-import { bn254 } from '@noble/curves/bn254'; // also known as alt_bn128
-import { jubjub } from '@noble/curves/jubjub';
-import { bytesToHex, hexToBytes, concatBytes, utf8ToBytes } from '@noble/curves/abstract/utils';
-```
-
-#### Accessing a curve's variables
+### hash-to-curve: hashing to curve points
 
 ```ts
-import { secp256k1 } from '@noble/curves/secp256k1';
-// Every curve has `CURVE` object that contains its parameters, field, and others
-console.log(secp256k1.CURVE.p); // field modulus
-console.log(secp256k1.CURVE.n); // curve order
-console.log(secp256k1.CURVE.a, secp256k1.CURVE.b); // equation params
-console.log(secp256k1.CURVE.Gx, secp256k1.CURVE.Gy); // base point coordinates
-```
+import { bls12_381 } from './src/bls12-381.ts';
+import { ed25519_hasher, ristretto255_hasher } from './src/ed25519.ts';
+import { decaf448_hasher, ed448_hasher } from './src/ed448.ts';
+import { p256_hasher, p384_hasher, p521_hasher } from './src/nist.ts';
+import { secp256k1_hasher } from './src/secp256k1.ts';
 
-## Abstract API
-
-Abstract API allows to define custom curves. All arithmetics is done with JS
-bigints over finite fields, which is defined from `modular` sub-module. For
-scalar multiplication, we use
-[precomputed tables with w-ary non-adjacent form (wNAF)](https://paulmillr.com/posts/noble-secp256k1-fast-ecc/).
-Precomputes are enabled for weierstrass and edwards BASE points of a curve. You
-could precompute any other point (e.g. for ECDH) using `utils.precompute()`
-method: check out examples.
-
-### weierstrass: Short Weierstrass curve
-
-```ts
-import { weierstrass } from '@noble/curves/abstract/weierstrass';
-import { Field } from '@noble/curves/abstract/modular'; // finite field for mod arithmetics
-import { sha256 } from '@noble/hashes/sha256'; // 3rd-party sha256() of type utils.CHash
-import { hmac } from '@noble/hashes/hmac'; // 3rd-party hmac() that will accept sha256()
-import { concatBytes, randomBytes } from '@noble/hashes/utils'; // 3rd-party utilities
-const secq256k1 = weierstrass({
-  // secq256k1: cycle of secp256k1 with Fp/N flipped.
-  // https://personaelabs.org/posts/spartan-ecdsa
-  // https://zcash.github.io/halo2/background/curves.html#cycles-of-curves
-  a: 0n,
-  b: 7n,
-  Fp: Field(2n ** 256n - 432420386565659656852420866394968145599n),
-  n: 2n ** 256n - 2n ** 32n - 2n ** 9n - 2n ** 8n - 2n ** 7n - 2n ** 6n - 2n ** 4n - 1n,
-  Gx: 55066263022277343669578718895168534326250603453777594175500187360389116729240n,
-  Gy: 32670510020758816978083085130507043184471273380659243275938904335757337482424n,
-  hash: sha256,
-  hmac: (key: Uint8Array, ...msgs: Uint8Array[]) => hmac(sha256, key, concatBytes(...msgs)),
-  randomBytes,
-});
-
-// Replace weierstrass() with weierstrassPoints() if you don't need ECDSA, hash, hmac, randomBytes
-```
-
-Short Weierstrass curve's formula is `y² = x³ + ax + b`. `weierstrass`
-expects arguments `a`, `b`, field `Fp`, curve order `n`, cofactor `h`
-and coordinates `Gx`, `Gy` of generator point.
-
-**`k` generation** is done deterministically, following
-[RFC6979](https://www.rfc-editor.org/rfc/rfc6979). For this you will need
-`hmac` & `hash`, which in our implementations is provided by noble-hashes. If
-you're using different hashing library, make sure to wrap it in the following interface:
-
-```ts
-type CHash = {
-  (message: Uint8Array): Uint8Array;
-  blockLen: number;
-  outputLen: number;
-  create(): any;
+const h = {
+  secp256k1_hasher,
+  p256_hasher, p384_hasher, p521_hasher,
+  ed25519_hasher,
+  ed448_hasher,
+  ristretto255_hasher,
+  decaf448_hasher,
+  bls_G1: bls12_381.G1,
+  bls_G2: bls12_381.G2
 };
 
-// example
-function sha256(message: Uint8Array) {
-  return _internal_lowlvl(message);
+const msg = Uint8Array.from([0xca, 0xfe, 0x01, 0x23]);
+console.log('msg', msg);
+for (let [name, c] of Object.entries(h)) {
+  const hashToCurve = c.hashToCurve(msg).toHex();
+  const hashToCurve_customDST = c.hashToCurve(msg, { DST: 'hello noble' }).toHex();
+  const encodeToCurve = 'encodeToCurve' in c ? c.encodeToCurve(msg).toHex() : undefined;
+  // ristretto255, decaf448 only
+  const deriveToCurve = 'deriveToCurve' in c ?
+    c.deriveToCurve!(new Uint8Array(c.Point.Fp.BYTES * 2)).toHex() : undefined;
+  const hashToScalar = c.hashToScalar(msg);
+  console.log({
+    name, hashToCurve, hashToCurve_customDST, encodeToCurve, deriveToCurve, hashToScalar
+  });
 }
-sha256.outputLen = 32; // 32 bytes of output for sha2-256
+
+// abstract methods
+import { expand_message_xmd, expand_message_xof, hash_to_field } from '@noble/curves/abstract/hash-to-curve.js';
 ```
-
-**Message hash** is expected instead of message itself:
-
-- `sign(msgHash, privKey)` is default behavior, assuming you pre-hash msg with sha2, or other hash
-- `sign(msg, privKey, {prehash: true})` option can be used if you want to pass the message itself
-
-**Weierstrass points:**
-
-1. Exported as `ProjectivePoint`
-2. Represented in projective (homogeneous) coordinates: (x, y, z) ∋ (x=x/z, y=y/z)
-3. Use complete exception-free formulas for addition and doubling
-4. Can be decoded/encoded from/to Uint8Array / hex strings using
-   `ProjectivePoint.fromHex` and `ProjectivePoint#toRawBytes()`
-5. Have `assertValidity()` which checks for being on-curve
-6. Have `toAffine()` and `x` / `y` getters which convert to 2d xy affine coordinates
-
-```ts
-// `weierstrassPoints()` returns `CURVE` and `ProjectivePoint`
-// `weierstrass()` returns `CurveFn`
-type SignOpts = { lowS?: boolean; prehash?: boolean; extraEntropy: boolean | Uint8Array };
-type CurveFn = {
-  CURVE: ReturnType<typeof validateOpts>;
-  getPublicKey: (privateKey: PrivKey, isCompressed?: boolean) => Uint8Array;
-  getSharedSecret: (privateA: PrivKey, publicB: Hex, isCompressed?: boolean) => Uint8Array;
-  sign: (msgHash: Hex, privKey: PrivKey, opts?: SignOpts) => SignatureType;
-  verify: (
-    signature: Hex | SignatureType,
-    msgHash: Hex,
-    publicKey: Hex,
-    opts?: { lowS?: boolean; prehash?: boolean }
-  ) => boolean;
-  ProjectivePoint: ProjectivePointConstructor;
-  Signature: SignatureConstructor;
-  utils: {
-    normPrivateKeyToScalar: (key: PrivKey) => bigint;
-    isValidPrivateKey(key: PrivKey): boolean;
-    randomPrivateKey: () => Uint8Array;
-    precompute: (windowSize?: number, point?: ProjPointType<bigint>) => ProjPointType<bigint>;
-  };
-};
-
-// T is usually bigint, but can be something else like complex numbers in BLS curves
-interface ProjPointType<T> extends Group<ProjPointType<T>> {
-  readonly px: T;
-  readonly py: T;
-  readonly pz: T;
-  get x(): bigint;
-  get y(): bigint;
-  multiply(scalar: bigint): ProjPointType<T>;
-  multiplyUnsafe(scalar: bigint): ProjPointType<T>;
-  multiplyAndAddUnsafe(Q: ProjPointType<T>, a: bigint, b: bigint): ProjPointType<T> | undefined;
-  toAffine(iz?: T): AffinePoint<T>;
-  isTorsionFree(): boolean;
-  clearCofactor(): ProjPointType<T>;
-  assertValidity(): void;
-  hasEvenY(): boolean;
-  toRawBytes(isCompressed?: boolean): Uint8Array;
-  toHex(isCompressed?: boolean): string;
-}
-// Static methods for 3d XYZ points
-interface ProjConstructor<T> extends GroupConstructor<ProjPointType<T>> {
-  new (x: T, y: T, z: T): ProjPointType<T>;
-  fromAffine(p: AffinePoint<T>): ProjPointType<T>;
-  fromHex(hex: Hex): ProjPointType<T>;
-  fromPrivateKey(privateKey: PrivKey): ProjPointType<T>;
-}
-```
-
-**ECDSA signatures** are represented by `Signature` instances and can be
-described by the interface:
-
-```ts
-interface SignatureType {
-  readonly r: bigint;
-  readonly s: bigint;
-  readonly recovery?: number;
-  assertValidity(): void;
-  addRecoveryBit(recovery: number): SignatureType;
-  hasHighS(): boolean;
-  normalizeS(): SignatureType;
-  recoverPublicKey(msgHash: Hex): ProjPointType<bigint>;
-  toCompactRawBytes(): Uint8Array;
-  toCompactHex(): string;
-  // DER-encoded
-  toDERRawBytes(): Uint8Array;
-  toDERHex(): string;
-}
-type SignatureConstructor = {
-  new (r: bigint, s: bigint): SignatureType;
-  fromCompact(hex: Hex): SignatureType;
-  fromDER(hex: Hex): SignatureType;
-};
-```
-
-More examples:
-
-```typescript
-// All curves expose same generic interface.
-const priv = secq256k1.utils.randomPrivateKey();
-secq256k1.getPublicKey(priv); // Convert private key to public.
-const sig = secq256k1.sign(msg, priv); // Sign msg with private key.
-const sig2 = secq256k1.sign(msg, priv, { prehash: true }); // hash(msg)
-secq256k1.verify(sig, msg, priv); // Verify if sig is correct.
-
-const Point = secq256k1.ProjectivePoint;
-const point = Point.BASE; // Elliptic curve Point class and BASE point static var.
-point.add(point).equals(point.double()); // add(), equals(), double() methods
-point.subtract(point).equals(Point.ZERO); // subtract() method, ZERO static var
-point.negate(); // Flips point over x/y coordinate.
-point.multiply(31415n); // Multiplication of Point by scalar.
-
-point.assertValidity(); // Checks for being on-curve
-point.toAffine(); // Converts to 2d affine xy coordinates
-
-secq256k1.CURVE.n;
-secq256k1.CURVE.p;
-secq256k1.CURVE.Fp.mod();
-secq256k1.CURVE.hash();
-
-// precomputes
-const fast = secq256k1.utils.precompute(8, Point.fromHex(someonesPubKey));
-fast.multiply(privKey); // much faster ECDH now
-```
-
-### edwards: Twisted Edwards curve
-
-```ts
-import { twistedEdwards } from '@noble/curves/abstract/edwards';
-import { Field } from '@noble/curves/abstract/modular';
-import { sha512 } from '@noble/hashes/sha512';
-import { randomBytes } from '@noble/hashes/utils';
-
-const Fp = Field(2n ** 255n - 19n);
-const ed25519 = twistedEdwards({
-  a: Fp.create(-1n),
-  d: Fp.div(-121665n, 121666n), // -121665n/121666n mod p
-  Fp: Fp,
-  n: 2n ** 252n + 27742317777372353535851937790883648493n,
-  h: 8n,
-  Gx: 15112221349535400772501151409588531511454012693041857206046113283949847762202n,
-  Gy: 46316835694926478169428394003475163141307993866256225615783033603165251855960n,
-  hash: sha512,
-  randomBytes,
-  adjustScalarBytes(bytes) {
-    // optional; but mandatory in ed25519
-    bytes[0] &= 248;
-    bytes[31] &= 127;
-    bytes[31] |= 64;
-    return bytes;
-  },
-} as const);
-```
-
-Twisted Edwards curve's formula is `ax² + y² = 1 + dx²y²`. You must specify `a`, `d`, field `Fp`, order `n`, cofactor `h`
-and coordinates `Gx`, `Gy` of generator point.
-
-For EdDSA signatures, `hash` param required. `adjustScalarBytes` which instructs how to change private scalars could be specified.
-
-We support [non-repudiation](https://eprint.iacr.org/2020/1244), which help in following scenarios:
-
-- Contract Signing: if A signed an agreement with B using key that allows repudiation, it can later claim that it signed a different contract
-- E-voting: malicious voters may pick keys that allow repudiation in order to deny results
-- Blockchains: transaction of amount X might also be valid for a different amount Y
-
-**Edwards points:**
-
-1. Exported as `ExtendedPoint`
-2. Represented in extended coordinates: (x, y, z, t) ∋ (x=x/z, y=y/z)
-3. Use complete exception-free formulas for addition and doubling
-4. Can be decoded/encoded from/to Uint8Array / hex strings using `ExtendedPoint.fromHex` and `ExtendedPoint#toRawBytes()`
-5. Have `assertValidity()` which checks for being on-curve
-6. Have `toAffine()` and `x` / `y` getters which convert to 2d xy affine coordinates
-7. Have `isTorsionFree()`, `clearCofactor()` and `isSmallOrder()` utilities to handle torsions
-
-```ts
-// `twistedEdwards()` returns `CurveFn` of following type:
-type CurveFn = {
-  CURVE: ReturnType<typeof validateOpts>;
-  getPublicKey: (privateKey: Hex) => Uint8Array;
-  sign: (message: Hex, privateKey: Hex, context?: Hex) => Uint8Array;
-  verify: (sig: SigType, message: Hex, publicKey: Hex, context?: Hex) => boolean;
-  ExtendedPoint: ExtPointConstructor;
-  utils: {
-    randomPrivateKey: () => Uint8Array;
-    getExtendedPublicKey: (key: PrivKey) => {
-      head: Uint8Array;
-      prefix: Uint8Array;
-      scalar: bigint;
-      point: PointType;
-      pointBytes: Uint8Array;
-    };
-  };
-};
-
-interface ExtPointType extends Group<ExtPointType> {
-  readonly ex: bigint;
-  readonly ey: bigint;
-  readonly ez: bigint;
-  readonly et: bigint;
-  get x(): bigint;
-  get y(): bigint;
-  assertValidity(): void;
-  multiply(scalar: bigint): ExtPointType;
-  multiplyUnsafe(scalar: bigint): ExtPointType;
-  isSmallOrder(): boolean;
-  isTorsionFree(): boolean;
-  clearCofactor(): ExtPointType;
-  toAffine(iz?: bigint): AffinePoint<bigint>;
-  toRawBytes(isCompressed?: boolean): Uint8Array;
-  toHex(isCompressed?: boolean): string;
-}
-// Static methods of Extended Point with coordinates in X, Y, Z, T
-interface ExtPointConstructor extends GroupConstructor<ExtPointType> {
-  new (x: bigint, y: bigint, z: bigint, t: bigint): ExtPointType;
-  fromAffine(p: AffinePoint<bigint>): ExtPointType;
-  fromHex(hex: Hex): ExtPointType;
-  fromPrivateKey(privateKey: Hex): ExtPointType;
-}
-```
-
-### montgomery: Montgomery curve
-
-```typescript
-import { montgomery } from '@noble/curves/abstract/montgomery';
-import { Field } from '@noble/curves/abstract/modular';
-
-const x25519 = montgomery({
-  a: 486662n,
-  Gu: 9n,
-  P: 2n ** 255n - 19n,
-  montgomeryBits: 255,
-  nByteLength: 32,
-  // Optional param
-  adjustScalarBytes(bytes) {
-    bytes[0] &= 248;
-    bytes[31] &= 127;
-    bytes[31] |= 64;
-    return bytes;
-  },
-});
-```
-
-The module contains methods for x-only ECDH on Curve25519 / Curve448 from RFC7748.
-Proper Elliptic Curve Points are not implemented yet.
-
-You must specify curve params `Fp`, `a`, `Gu` coordinate of u, `montgomeryBits` and `nByteLength`.
-
-### bls: Barreto-Lynn-Scott curves
-
-The module abstracts BLS (Barreto-Lynn-Scott) pairing-friendly elliptic curve construction.
-They allow to construct [zk-SNARKs](https://z.cash/technology/zksnarks/) and
-use aggregated, batch-verifiable
-[threshold signatures](https://medium.com/snigirev.stepan/bls-signatures-better-than-schnorr-5a7fe30ea716),
-using Boneh-Lynn-Shacham signature scheme.
-
-The module doesn't expose `CURVE` property: use `G1.CURVE`, `G2.CURVE` instead.
-Only BLS12-381 is currently implemented.
-Defining BLS12-377 and BLS24 should be straightforward.
-
-The default BLS uses short public keys (with public keys in G1 and signatures in G2).
-Short signatures (public keys in G2 and signatures in G1) are also supported.
-
-### hash-to-curve: Hashing strings to curve points
 
 The module allows to hash arbitrary strings to elliptic curve points. Implements [RFC 9380](https://www.rfc-editor.org/rfc/rfc9380).
 
-Every curve has exported `hashToCurve` and `encodeToCurve` methods. You should always prefer `hashToCurve` for security:
+> [!NOTE]
+> Why is `p256_hasher` separate from `p256`?
+> The methods reside in separate _hasher namespace for tree-shaking:
+> this way users who don't need hash-to-curve, won't have it in their builds.
 
-```ts
-import { hashToCurve, encodeToCurve } from '@noble/curves/secp256k1';
-import { randomBytes } from '@noble/hashes/utils';
-hashToCurve('0102abcd');
-console.log(hashToCurve(randomBytes()));
-console.log(encodeToCurve(randomBytes()));
+### OPRFs
 
-import { bls12_381 } from '@noble/curves/bls12-381';
-bls12_381.G1.hashToCurve(randomBytes(), { DST: 'another' });
-bls12_381.G2.hashToCurve(randomBytes(), { DST: 'custom' });
+```js
+import { p256_oprf, p384_oprf, p521_oprf } from '@noble/curves/nist.js';
+import { ristretto255_oprf } from '@noble/curves/ed25519.js';
+import { decaf448_orpf } from '@noble/curves/ed448.js';
 ```
 
-Low-level methods from the spec:
+We provide OPRFs (oblivious pseudorandom functions),
+conforming to [RFC 9497](https://www.rfc-editor.org/rfc/rfc9497).
 
-```ts
-// produces a uniformly random byte string using a cryptographic hash function H that outputs b bits.
-function expand_message_xmd(
-  msg: Uint8Array,
-  DST: Uint8Array,
-  lenInBytes: number,
-  H: CHash // For CHash see abstract/weierstrass docs section
-): Uint8Array;
-// produces a uniformly random byte string using an extendable-output function (XOF) H.
-function expand_message_xof(
-  msg: Uint8Array,
-  DST: Uint8Array,
-  lenInBytes: number,
-  k: number,
-  H: CHash
-): Uint8Array;
-// Hashes arbitrary-length byte strings to a list of one or more elements of a finite field F
-function hash_to_field(msg: Uint8Array, count: number, options: Opts): bigint[][];
+OPRF allows to interactively create an `Output = PRF(Input, serverSecretKey)`:
 
-/**
- * * `DST` is a domain separation tag, defined in section 2.2.5
- * * `p` characteristic of F, where F is a finite field of characteristic p and order q = p^m
- * * `m` is extension degree (1 for prime fields)
- * * `k` is the target security target in bits (e.g. 128), from section 5.1
- * * `expand` is `xmd` (SHA2, SHA3, BLAKE) or `xof` (SHAKE, BLAKE-XOF)
- * * `hash` conforming to `utils.CHash` interface, with `outputLen` / `blockLen` props
- */
-type UnicodeOrBytes = string | Uint8Array;
-type Opts = {
-  DST: UnicodeOrBytes;
-  p: bigint;
-  m: number;
-  k: number;
-  expand?: 'xmd' | 'xof';
-  hash: CHash;
-};
-```
+- Server cannot calculate Output by itself: it doesn't know Input
+- Client cannot calculate Output by itself: it doesn't know server secretKey
+- An attacker interception the communication can't restore Input/Output/serverSecretKey and can't
+  link Input to some value.
 
 ### poseidon: Poseidon hash
 
-Implements [Poseidon](https://www.poseidon-hash.info) ZK-friendly hash.
+Implements [Poseidon](https://www.poseidon-hash.info) ZK-friendly hash:
+permutation and sponge.
 
 There are many poseidon variants with different constants.
 We don't provide them: you should construct them manually.
-Check out [micro-starknet](https://github.com/paulmillr/micro-starknet) package for a proper example.
+Check out [scure-starknet](https://github.com/paulmillr/scure-starknet) package for a proper example.
 
 ```ts
-import { poseidon } from '@noble/curves/abstract/poseidon';
+import { poseidon, poseidonSponge } from '@noble/curves/abstract/poseidon.js';
 
-type PoseidonOpts = {
-  Fp: Field<bigint>;
-  t: number;
-  roundsFull: number;
-  roundsPartial: number;
-  sboxPower?: number;
-  reversePartialPowIdx?: boolean;
-  mds: bigint[][];
-  roundConstants: bigint[][];
+const rate = 2;
+const capacity = 1;
+const { mds, roundConstants } = poseidon.grainGenConstants({
+  Fp,
+  t: rate + capacity,
+  roundsFull: 8,
+  roundsPartial: 31,
+});
+const opts = {
+  Fp,
+  rate,
+  capacity,
+  sboxPower: 17,
+  mds,
+  roundConstants,
+  roundsFull: 8,
+  roundsPartial: 31,
 };
-const instance = poseidon(opts: PoseidonOpts);
+const permutation = poseidon.poseidon(opts);
+const sponge = poseidon.poseidonSponge(opts); // use carefully, not specced
 ```
 
-### modular: Modular arithmetics utilities
+### fft: Fast Fourier Transform
 
 ```ts
-import * as mod from '@noble/curves/abstract/modular';
-const fp = mod.Field(2n ** 255n - 19n); // Finite field over 2^255-19
+import * as fft from '@noble/curves/abstract/fft.js';
+import { bls12_381 } from '@noble/curves/bls12-381.js';
+const Fr = bls12_381.fields.Fr;
+const roots = fft.rootsOfUnity(Fr, 7n);
+const fftFr = fft.FFT(roots, Fr);
+```
+
+Experimental implementation of NTT / FFT (Fast Fourier Transform) over finite fields.
+API may change at any time. The code has not been audited. Feature requests are welcome.
+
+### utils: byte shuffling, conversion
+
+```ts
+import { bytesToHex, concatBytes, equalBytes, hexToBytes } from '@noble/curves/abstract/utils.js';
+
+bytesToHex(Uint8Array.from([0xca, 0xfe, 0x01, 0x23]));
+hexToBytes('cafe0123');
+concatBytes(Uint8Array.from([0xca, 0xfe]), Uint8Array.from([0x01, 0x23]));
+equalBytes(Uint8Array.of(0xca), Uint8Array.of(0xca));
+```
+
+### Internals
+
+#### Elliptic curve Point math
+
+```js
+import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
+import { p256, p384, p521 } from '@noble/curves/nist.js';
+import { ed25519, ristretto255 } from '@noble/curves/ed25519.js';
+import { ed448, decaf448 } from '@noble/curves/ed448.js';
+import { bls12_381 } from '@noble/curves/bls12-381.js'
+import { bn254 } from '@noble/curves/bn254.js';
+import { jubjub, babyjubjub } from '@noble/curves/misc.js';
+
+const curves = [
+  secp256k1, schnorr, p256, p384, p521, ed25519, ed448,
+  ristretto255, decaf448,
+  bls12_381.G1, bls12_381.G2, bn254.G1, bn254.G2,
+  jubjub, babyjubjub
+];
+for (const curve of curves) {
+  const { Point } = curve;
+  const { BASE, ZERO, Fp, Fn } = Point;
+  const p = BASE.multiply(2n);
+
+  // Initialization
+  if (info.type === 'weierstrass') {
+    // projective (homogeneous) coordinates: (X, Y, Z) ∋ (x=X/Z, y=Y/Z)
+    const p_ = new Point(BASE.X, BASE.Y, BASE.Z);
+  } else if (info.type === 'edwards') {
+    // extended coordinates: (X, Y, Z, T) ∋ (x=X/Z, y=Y/Z)
+    const p_ = new Point(BASE.X, BASE.Y, BASE.Z, BASE.T);
+  }
+
+  // Math
+  const p1 = p.add(p);
+  const p2 = p.double();
+  const p3 = p.subtract(p);
+  const p4 = p.negate();
+  const p5 = p.multiply(451n);
+
+  // MSM (multi-scalar multiplication)
+  const pa = [BASE, BASE.multiply(2n), BASE.multiply(4n), BASE.multiply(8n)];
+  const p6 = Point.msm(pa, [3n, 5n, 7n, 11n]);
+  const _true3 = p6.equals(BASE.multiply(129n)); // 129*G
+
+  const pcl = p.clearCofactor();
+  console.log(p.isTorsionFree(), p.isSmallOrder());
+
+  const r1 = p.toBytes();
+  const r1_ = Point.fromBytes(r1);
+  const r2 = p.toAffine();
+  const { x, y } = r2;
+  const r2_ = Point.fromAffine(r2);
+}
+```
+
+#### modular: Modular arithmetics & finite fields
+
+```js
+import { mod, invert, Field } from '@noble/curves/abstract/modular.js';
+
+// Finite Field utils
+const fp = Field(2n ** 255n - 19n); // Finite field over 2^255-19
 fp.mul(591n, 932n); // multiplication
 fp.pow(481n, 11024858120n); // exponentiation
 fp.div(5n, 17n); // division: 5/17 mod 2^255-19 == 5 * invert(17)
+fp.inv(5n); // modular inverse
 fp.sqrt(21n); // square root
 
-// Generic non-FP utils are also available
-mod.mod(21n, 10n); // 21 mod 10 == 1n; fixed version of 21 % 10
-mod.invert(17n, 10n); // invert(17) mod 10; modular multiplicative inverse
-mod.invertBatch([1n, 2n, 4n], 21n); // => [1n, 11n, 16n] in one inversion
+// Non-Field generic utils are also available
+mod(21n, 10n); // 21 mod 10 == 1n; fixed version of 21 % 10
+invert(17n, 10n); // invert(17) mod 10; modular multiplicative inverse
 ```
 
-Field operations are not constant-time: they are using JS bigints, see [security](#security).
+All arithmetics is done with JS bigints over finite fields,
+which is defined from `modular` sub-module.
+
+Field operations are not constant-time: see [security](#security).
 The fact is mostly irrelevant, but the important method to keep in mind is `pow`,
 which may leak exponent bits, when used naïvely.
 
-`mod.Field` is always **field over prime**. Non-prime fields aren't supported for now.
-We don't test for prime-ness for speed and because algorithms are probabilistic anyway.
-Initializing a non-prime field could make your app suspectible to
-DoS (infilite loop) on Tonelli-Shanks square root calculation.
+#### weierstrass: Custom Weierstrass curve
 
-Unlike `mod.invert`, `mod.invertBatch` won't throw on `0`: make sure to throw an error yourself.
-
-#### Creating private keys from hashes
-
-You can't simply make a 32-byte private key from a 32-byte hash.
-Doing so will make the key [biased](https://research.kudelskisecurity.com/2020/07/28/the-definitive-guide-to-modulo-bias-and-how-to-avoid-it/).
-
-To make the bias negligible, we follow [FIPS 186-5 A.2](https://csrc.nist.gov/publications/detail/fips/186/5/final)
-and [RFC 9380](https://www.rfc-editor.org/rfc/rfc9380#section-5.2).
-This means, for 32-byte key, we would need 48-byte hash to get 2^-128 bias, which matches curve security level.
-
-`hashToPrivateScalar()` that hashes to **private key** was created for this purpose.
-Use [abstract/hash-to-curve](#hash-to-curve-hashing-strings-to-curve-points)
-if you need to hash to **public key**.
-
-```ts
-import { p256 } from '@noble/curves/p256';
-import { sha256 } from '@noble/hashes/sha256';
-import { hkdf } from '@noble/hashes/hkdf';
-import * as mod from '@noble/curves/abstract/modular';
-const someKey = new Uint8Array(32).fill(2); // Needs to actually be random, not .fill(2)
-const derived = hkdf(sha256, someKey, undefined, 'application', 48); // 48 bytes for 32-byte priv
-const validPrivateKey = mod.hashToPrivateScalar(derived, p256.CURVE.n);
+```js
+import { weierstrass } from '@noble/curves/abstract/weierstrass.js';
+// NIST secp192r1 aka p192. https://www.secg.org/sec2-v2.pdf
+const p192_CURVE = {
+  p: 0xfffffffffffffffffffffffffffffffeffffffffffffffffn,
+  n: 0xffffffffffffffffffffffff99def836146bc9b1b4d22831n,
+  h: 1n,
+  a: 0xfffffffffffffffffffffffffffffffefffffffffffffffcn,
+  b: 0x64210519e59c80e70fa7e9ab72243049feb8deecc146b9b1n,
+  Gx: 0x188da80eb03090f67cbf20eb43a18800f4ff0afd82ff1012n,
+  Gy: 0x07192b95ffc8da78631011ed6b24cdd573f977a11e794811n,
+};
+const p192_Point = weierstrass(p192_CURVE);
 ```
 
-### utils: Useful utilities
+Short Weierstrass curve's formula is `y² = x³ + ax + b`. `weierstrass`
+expects arguments `a`, `b`, field characteristic `p`, curve order `n`,
+cofactor `h` and coordinates `Gx`, `Gy` of generator point.
 
-```ts
-import * as utils from '@noble/curves/abstract/utils';
+#### edwards: Custom Edwards curve
 
-utils.bytesToHex(Uint8Array.from([0xde, 0xad, 0xbe, 0xef]));
-utils.hexToBytes('deadbeef');
-utils.numberToHexUnpadded(123n);
-utils.hexToNumber();
+```js
+import { edwards } from '@noble/curves/abstract/edwards.js';
+const ed25519_CURVE = {
+  p: 0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffedn,
+  n: 0x1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3edn,
+  h: 8n,
+  a: 0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffecn,
+  d: 0x52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3n,
+  Gx: 0x216936d3cd6e53fec0a4e231fdd6dc5c692cc7609525a7b2c9562d608f25d51an,
+  Gy: 0x6666666666666666666666666666666666666666666666666666666666666658n,
+};
+const ed25519_Point = edwards(ed25519_CURVE);
+```
 
-utils.bytesToNumberBE(Uint8Array.from([0xde, 0xad, 0xbe, 0xef]));
-utils.bytesToNumberLE(Uint8Array.from([0xde, 0xad, 0xbe, 0xef]));
-utils.numberToBytesBE(123n, 32);
-utils.numberToBytesLE(123n, 64);
+Twisted Edwards curve's formula is `ax² + y² = 1 + dx²y²`.
+You must specify `a`, `d`, field characteristic `p`, curve order `n` (sometimes named as `L`),
+cofactor `h` and coordinates `Gx`, `Gy` of generator point.
 
-utils.concatBytes(Uint8Array.from([0xde, 0xad]), Uint8Array.from([0xbe, 0xef]));
-utils.nLength(255n);
-utils.equalBytes(Uint8Array.from([0xde]), Uint8Array.from([0xde]));
+#### Custom ECDSA instance
+
+```js
+import { ecdsa } from '@noble/curves/abstract/weierstrass.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+const p192_sha256 = ecdsa(p192_Point, sha256);
+// or
+const p192_sha224 = ecdsa(p192.Point, sha224);
+
+const keys = p192_sha256.keygen();
+const msg = new TextEncoder().encode('custom curve');
+const sig = p192_sha256.sign(msg, keys.secretKey);
+const isValid = p192_sha256.verify(sig, msg, keys.publicKey);
 ```
 
 ## Security
 
 The library has been independently audited:
 
+- at version 1.6.0, in Sep 2024, by [Cure53](https://cure53.de)
+  - PDFs: [website](https://cure53.de/audit-report_noble-crypto-libs.pdf), [in-repo](./audit/2024-09-cure53-audit-nbl4.pdf)
+  - [Changes since audit](https://github.com/paulmillr/noble-curves/compare/1.6.0..main)
+  - Scope: ed25519, ed448, their add-ons, bls12-381, bn254,
+    hash-to-curve, low-level primitives bls, tower, edwards, montgomery.
+  - The audit has been funded by [OpenSats](https://opensats.org)
 - at version 1.2.0, in Sep 2023, by [Kudelski Security](https://kudelskisecurity.com)
-  - PDFs: [offline](./audit/2023-09-kudelski-audit-starknet.pdf)
+  - PDFs: [in-repo](./audit/2023-09-kudelski-audit-starknet.pdf)
   - [Changes since audit](https://github.com/paulmillr/noble-curves/compare/1.2.0..main)
   - Scope: [scure-starknet](https://github.com/paulmillr/scure-starknet) and its related
     abstract modules of noble-curves: `curve`, `modular`, `poseidon`, `weierstrass`
   - The audit has been funded by [Starkware](https://starkware.co)
 - at version 0.7.3, in Feb 2023, by [Trail of Bits](https://www.trailofbits.com)
-  - PDFs: [online](https://github.com/trailofbits/publications/blob/master/reviews/2023-01-ryanshea-noblecurveslibrary-securityreview.pdf),
-    [offline](./audit/2023-01-trailofbits-audit-curves.pdf)
+  - PDFs: [website](https://github.com/trailofbits/publications/blob/master/reviews/2023-01-ryanshea-noblecurveslibrary-securityreview.pdf),
+    [in-repo](./audit/2023-01-trailofbits-audit-curves.pdf)
   - [Changes since audit](https://github.com/paulmillr/noble-curves/compare/0.7.3..main)
   - Scope: abstract modules `curve`, `hash-to-curve`, `modular`, `poseidon`, `utils`, `weierstrass` and
     top-level modules `_shortw_utils` and `secp256k1`
   - The audit has been funded by [Ryan Shea](https://www.shea.io)
 
 It is tested against property-based, cross-library and Wycheproof vectors,
-and has fuzzing by [Guido Vranken's cryptofuzz](https://github.com/guidovranken/cryptofuzz).
+and is being fuzzed in [the separate repo](https://github.com/paulmillr/integration-tests).
 
 If you see anything unusual: investigate and report.
 
 ### Constant-timeness
 
-_JIT-compiler_ and _Garbage Collector_ make "constant time" extremely hard to
-achieve [timing attack](https://en.wikipedia.org/wiki/Timing_attack) resistance
+We're targetting algorithmic constant time. _JIT-compiler_ and _Garbage Collector_ make "constant time"
+extremely hard to achieve [timing attack](https://en.wikipedia.org/wiki/Timing_attack) resistance
 in a scripting language. Which means _any other JS library can't have
 constant-timeness_. Even statically typed Rust, a language without GC,
 [makes it harder to achieve constant-time](https://www.chosenplaintext.ca/open-source/rust-timing-shield/security)
 for some cases. If your goal is absolute security, don't use any JS lib — including bindings to native ones.
-Use low-level libraries & languages. Nonetheless we're targetting algorithmic constant time.
+Use low-level libraries & languages.
+
+### Memory dumping
+
+Use low-level languages instead of JS / WASM if your goal is absolute security.
+
+The library mostly uses Uint8Arrays and bigints.
+
+- Uint8Arrays have `.fill(0)` which instructs to fill content with zeroes
+  but there are no guarantees in JS
+- bigints are immutable and don't have a method to zeroize their content:
+  a user needs to wait until the next garbage collection cycle
+- hex strings are also immutable: there is no way to zeroize them
+- `await fn()` will write all internal variables to memory. With
+  async functions there are no guarantees when the code
+  chunk would be executed. Which means attacker can have
+  plenty of time to read data from memory.
+
+This means some secrets could stay in memory longer than anticipated.
+However, if an attacker can read application memory, it's doomed anyway:
+there is no way to guarantee anything about zeroizing sensitive data without
+complex tests-suite which will dump process memory and verify that there is
+no sensitive data left. For JS it means testing all browsers (including mobile).
+And, of course, it will be useless without using the same
+test-suite in the actual application that consumes the library.
 
 ### Supply chain security
 
-- **Commits** are signed with PGP keys, to prevent forgery. Make sure to verify commit signatures.
-- **Releases** are transparent and built on GitHub CI. Make sure to verify [provenance](https://docs.npmjs.com/generating-provenance-statements) logs
-- **Rare releasing** is followed to ensure less re-audit need for end-users
-- **Dependencies** are minimized and locked-down:
-  - If your app has 500 dependencies, any dep could get hacked and you'll be downloading
-    malware with every install. We make sure to use as few dependencies as possible
-  - We prevent automatic dependency updates by locking-down version ranges. Every update is checked with `npm-diff`
-  - One dependency [noble-hashes](https://github.com/paulmillr/noble-hashes) is used, by the same author, to provide hashing functionality
-- **Dev Dependencies** are only used if you want to contribute to the repo. They are disabled for end-users:
-  - scure-base, scure-bip32, scure-bip39, micro-bmark and micro-should are developed by the same author and follow identical security practices
-  - prettier (linter), fast-check (property-based testing) and typescript are used for code quality, vector generation and ts compilation. The packages are big, which makes it hard to audit their source code thoroughly and fully
+- **Commits** are signed with PGP keys to prevent forgery. Be sure to verify the commit signatures
+- **Releases** are made transparently through token-less GitHub CI and Trusted Publishing. Be sure to verify the [provenance logs](https://docs.npmjs.com/generating-provenance-statements) for authenticity.
+- **Rare releasing** is practiced to minimize the need for re-audits by end-users.
+- **Dependencies** are minimized and strictly pinned to reduce supply-chain risk.
+  - We use as few dependencies as possible.
+  - Version ranges are locked, and changes are checked with npm-diff.
+- **Dev dependencies** are excluded from end-user installs; they’re only used for development and build steps.
+
+For this package, there is 1 dependency; and a few dev dependencies:
+
+- [noble-hashes](https://github.com/paulmillr/noble-hashes) provides cryptographic hashing functionality
+- jsbt is used for benchmarking / testing / build tooling and developed by the same author
+- prettier, fast-check and typescript are used for code quality / test generation / ts compilation
 
 ### Randomness
 
-We're deferring to built-in
-[crypto.getRandomValues](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/getRandomValues)
-which is considered cryptographically secure (CSPRNG).
+We rely on the built-in
+[`crypto.getRandomValues`](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/getRandomValues),
+which is considered a cryptographically secure PRNG.
 
-In the past, browsers had bugs that made it weak: it may happen again.
-Implementing a userspace CSPRNG to get resilient to the weakness
-is even worse: there is no reliable userspace source of quality entropy.
+Browsers have had weaknesses in the past - and could again - but implementing a userspace CSPRNG is even worse, as there’s no reliable userspace source of high-quality entropy.
+
+### Quantum computers
+
+Cryptographically relevant quantum computer, if built, will allow to
+break elliptic curve cryptography (both ECDSA / EdDSA & ECDH) using Shor's algorithm.
+
+Consider switching to newer / hybrid algorithms, such as SPHINCS+. They are available in
+[noble-post-quantum](https://github.com/paulmillr/noble-post-quantum).
+
+NIST prohibits classical cryptography (RSA, DSA, ECDSA, ECDH) [after 2035](https://nvlpubs.nist.gov/nistpubs/ir/2024/NIST.IR.8547.ipd.pdf). Australian ASD prohibits it [after 2030](https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism/cyber-security-guidelines/guidelines-cryptography).
 
 ## Speed
 
-Benchmark results on Apple M2 with node v22:
+```sh
+npm run bench
+```
+
+noble-curves spends 10+ ms to generate 20MB+ of base point precomputes.
+This is done **one-time** per curve.
+
+The generation is deferred until any method (pubkey, sign, verify) is called.
+User can force precompute generation by manually calling `Point.BASE.precompute(windowSize, false)`.
+Check out the source code.
+
+Benchmark results on Apple M4:
 
 ```
-secp256k1
-init x 68 ops/sec @ 14ms/op
-getPublicKey x 6,839 ops/sec @ 146μs/op
-sign x 5,226 ops/sec @ 191μs/op
-verify x 893 ops/sec @ 1ms/op
-getSharedSecret x 538 ops/sec @ 1ms/op
-recoverPublicKey x 923 ops/sec @ 1ms/op
-schnorr.sign x 700 ops/sec @ 1ms/op
-schnorr.verify x 919 ops/sec @ 1ms/op
+# secp256k1
+init 10ms
+getPublicKey x 9,099 ops/sec @ 109μs/op
+sign x 7,182 ops/sec @ 139μs/op
+verify x 1,188 ops/sec @ 841μs/op
+recoverPublicKey x 1,265 ops/sec @ 790μs/op
+getSharedSecret x 735 ops/sec @ 1ms/op
+schnorr.sign x 957 ops/sec @ 1ms/op
+schnorr.verify x 1,210 ops/sec @ 825μs/op
 
-ed25519
-init x 51 ops/sec @ 19ms/op
-getPublicKey x 9,809 ops/sec @ 101μs/op
-sign x 4,976 ops/sec @ 200μs/op
-verify x 1,018 ops/sec @ 981μs/op
+# ed25519
+init 14ms
+getPublicKey x 14,216 ops/sec @ 70μs/op
+sign x 6,849 ops/sec @ 145μs/op
+verify x 1,400 ops/sec @ 713μs/op
 
-ed448
-init x 19 ops/sec @ 50ms/op
-getPublicKey x 3,723 ops/sec @ 268μs/op
-sign x 1,759 ops/sec @ 568μs/op
-verify x 344 ops/sec @ 2ms/op
+# ed448
+init 37ms
+getPublicKey x 5,273 ops/sec @ 189μs/op
+sign x 2,494 ops/sec @ 400μs/op
+verify x 476 ops/sec @ 2ms/op
 
-p256
-init x 39 ops/sec @ 25ms/op
-getPublicKey x 6,518 ops/sec @ 153μs/op
-sign x 5,148 ops/sec @ 194μs/op
-verify x 609 ops/sec @ 1ms/op
+# p256
+init 17ms
+getPublicKey x 8,977 ops/sec @ 111μs/op
+sign x 7,236 ops/sec @ 138μs/op
+verify x 877 ops/sec @ 1ms/op
 
-p384
-init x 17 ops/sec @ 57ms/op
-getPublicKey x 2,933 ops/sec @ 340μs/op
-sign x 2,327 ops/sec @ 429μs/op
-verify x 244 ops/sec @ 4ms/op
+# p384
+init 42ms
+getPublicKey x 4,084 ops/sec @ 244μs/op
+sign x 3,247 ops/sec @ 307μs/op
+verify x 331 ops/sec @ 3ms/op
 
-p521
-init x 8 ops/sec @ 112ms/op
-getPublicKey x 1,484 ops/sec @ 673μs/op
-sign x 1,264 ops/sec @ 790μs/op
-verify x 124 ops/sec @ 8ms/op
+# p521
+init 83ms
+getPublicKey x 2,049 ops/sec @ 487μs/op
+sign x 1,748 ops/sec @ 571μs/op
+verify x 170 ops/sec @ 5ms/op
 
-ristretto255
-add x 680,735 ops/sec @ 1μs/op
-multiply x 10,766 ops/sec @ 92μs/op
-encode x 15,835 ops/sec @ 63μs/op
-decode x 15,972 ops/sec @ 62μs/op
+# ristretto255
+add x 931,966 ops/sec @ 1μs/op
+multiply x 15,444 ops/sec @ 64μs/op
+encode x 21,367 ops/sec @ 46μs/op
+decode x 21,715 ops/sec @ 46μs/op
 
-decaf448
-add x 345,303 ops/sec @ 2μs/op
-multiply x 300 ops/sec @ 3ms/op
-encode x 5,987 ops/sec @ 167μs/op
-decode x 5,892 ops/sec @ 169μs/op
+# decaf448
+add x 478,011 ops/sec @ 2μs/op
+multiply x 416 ops/sec @ 2ms/op
+encode x 8,562 ops/sec @ 116μs/op
+decode x 8,636 ops/sec @ 115μs/op
 
-ecdh
-├─x25519 x 1,477 ops/sec @ 676μs/op
-├─secp256k1 x 537 ops/sec @ 1ms/op
-├─p256 x 512 ops/sec @ 1ms/op
-├─p384 x 198 ops/sec @ 5ms/op
-├─p521 x 99 ops/sec @ 10ms/op
-└─x448 x 504 ops/sec @ 1ms/op
+# ECDH
+x25519 x 1,981 ops/sec @ 504μs/op
+x448 x 743 ops/sec @ 1ms/op
+secp256k1 x 728 ops/sec @ 1ms/op
+p256 x 705 ops/sec @ 1ms/op
+p384 x 268 ops/sec @ 3ms/op
+p521 x 137 ops/sec @ 7ms/op
 
-bls12-381
-init x 36 ops/sec @ 27ms/op
-getPublicKey x 960 ops/sec @ 1ms/op
-sign x 60 ops/sec @ 16ms/op
-verify x 47 ops/sec @ 21ms/op
-pairing x 125 ops/sec @ 7ms/op
-pairing10 x 40 ops/sec @ 24ms/op ± 23.27% (min: 21ms, max: 48ms)
-MSM 4096 scalars x points x 0 ops/sec @ 4655ms/op
-aggregatePublicKeys/8 x 129 ops/sec @ 7ms/op
-aggregatePublicKeys/32 x 34 ops/sec @ 28ms/op
-aggregatePublicKeys/128 x 8 ops/sec @ 113ms/op
-aggregatePublicKeys/512 x 2 ops/sec @ 449ms/op
-aggregatePublicKeys/2048 x 0 ops/sec @ 1792ms/op
-aggregateSignatures/8 x 62 ops/sec @ 15ms/op
-aggregateSignatures/32 x 16 ops/sec @ 60ms/op
-aggregateSignatures/128 x 4 ops/sec @ 238ms/op
-aggregateSignatures/512 x 1 ops/sec @ 946ms/op
-aggregateSignatures/2048 x 0 ops/sec @ 3774ms/op
+# hash-to-curve
+hashToPrivateScalar x 1,754,385 ops/sec @ 570ns/op
+hash_to_field x 135,703 ops/sec @ 7μs/op
+hashToCurve secp256k1 x 3,194 ops/sec @ 313μs/op
+hashToCurve p256 x 5,962 ops/sec @ 167μs/op
+hashToCurve p384 x 2,230 ops/sec @ 448μs/op
+hashToCurve p521 x 1,063 ops/sec @ 940μs/op
+hashToCurve ed25519 x 4,047 ops/sec @ 247μs/op
+hashToCurve ed448 x 1,691 ops/sec @ 591μs/op
+hash_to_ristretto255 x 8,733 ops/sec @ 114μs/op
+hash_to_decaf448 x 3,882 ops/sec @ 257μs/op
 
-hash-to-curve
-hash_to_field x 91,600 ops/sec @ 10μs/op
-secp256k1 x 2,373 ops/sec @ 421μs/op
-p256 x 4,310 ops/sec @ 231μs/op
-p384 x 1,664 ops/sec @ 600μs/op
-p521 x 807 ops/sec @ 1ms/op
-ed25519 x 3,088 ops/sec @ 323μs/op
-ed448 x 1,247 ops/sec @ 801μs/op
+# modular over secp256k1 P field
+invert a x 866,551 ops/sec @ 1μs/op
+invert b x 693,962 ops/sec @ 1μs/op
+sqrt p = 3 mod 4 x 25,738 ops/sec @ 38μs/op
+sqrt tonneli-shanks x 847 ops/sec @ 1ms/op
+
+# bls12-381
+init 22ms
+getPublicKey x 1,325 ops/sec @ 754μs/op
+sign x 80 ops/sec @ 12ms/op
+verify x 62 ops/sec @ 15ms/op
+pairing x 166 ops/sec @ 6ms/op
+pairing10 x 54 ops/sec @ 18ms/op ± 23.48% (15ms..36ms)
+MSM 4096 scalars x points 3286ms
+aggregatePublicKeys/8 x 173 ops/sec @ 5ms/op
+aggregatePublicKeys/32 x 46 ops/sec @ 21ms/op
+aggregatePublicKeys/128 x 11 ops/sec @ 84ms/op
+aggregatePublicKeys/512 x 2 ops/sec @ 335ms/op
+aggregatePublicKeys/2048 x 0 ops/sec @ 1346ms/op
+aggregateSignatures/8 x 82 ops/sec @ 12ms/op
+aggregateSignatures/32 x 21 ops/sec @ 45ms/op
+aggregateSignatures/128 x 5 ops/sec @ 178ms/op
+aggregateSignatures/512 x 1 ops/sec @ 705ms/op
+aggregateSignatures/2048 x 0 ops/sec @ 2823ms/op
 ```
 
 ## Upgrading
+
+Supported node.js versions:
+
+- v2 (2025-08): v20.19+ (ESM-only)
+- v1 (2023-04): v14.21+ (ESM & CJS)
+
+### Changelog of curves v1 to curves v2
+
+v2 massively simplifies internals, improves security, reduces bundle size and lays path for the future.
+We tried to keep v2 as much backwards-compatible as possible.
+
+To simplify upgrading, upgrade first to curves 1.9.x. It would show deprecations in vscode-like text editor.
+Fix them first.
+
+- The package is now ESM-only. ESM can finally be loaded from common.js on node v20.19+
+- `.js` extension must be used for all modules
+    - Old: `@noble/curves/ed25519`
+    - New: `@noble/curves/ed25519.js`
+    - This simplifies working in browsers natively without transpilers
+
+New features:
+
+- webcrypto: create friendly noble-like wrapper over built-in WebCrypto
+- oprf: implement RFC 9497 OPRFs (oblivious pseudorandom functions)
+    - We support p256, p384, p521, ristretto255 and decaf448
+- weierstrass, edwards: add `isValidSecretKey`, `isValidPublicKey`
+- misc: add Brainpool curves: brainpoolP256r1, brainpoolP384r1, brainpoolP512r1
+
+Changes:
+
+- Most methods now expect Uint8Array, string hex inputs are prohibited
+    - The change simplifies reasoning, improves security and reduces malleability
+    - `Point.fromHex` now expects string-only hex inputs, use `Point.fromBytes` for Uint8Array
+- Many methods were renamed, upgrade to curves v1.9 first to highlight deprecated old names
+- Breaking changes of ECDSA (secp256k1, p256, p384...):
+    - To bring back old behavior, pass `{ prehash: false, lowS: false }` to sign / verify
+    - sign, verify: Switch to **prehashed messages**. Instead of
+      messageHash, the methods now expect unhashed message.
+      To bring back old behavior, use option `{prehash: false}`
+    - sign, verify: Switch to **lowS signatures** by default.
+      This change doesn't affect secp256k1, which has been using lowS since beginning.
+      To bring back old behavior, use option `{lowS: false}`
+    - sign, verify: Switch to **Uint8Array signatures** (format: 'compact') by default.
+    - verify: **der format must be explicitly specified** in `{format: 'der'}`.
+      This reduces malleability
+    - verify: **prohibit Signature-instance** signature. User must now always do
+      `signature.toBytes()`
+- Breaking changes of BLS signatures (bls12-381, bn254):
+    - Move getPublicKey, sign, verify, signShortSignature etc into two new namespaces:
+      bls.longSignatures (G1 pubkeys, G2 sigs) and bls.shortSignatures (G1 sigs, G2 pubkeys).
+    - verifyBatch now expects array of inputs `{message: ..., publicKey: ...}[]`
+- Curve changes:
+    - Massively simplify curve creation, split it into point creation & sig generator creation
+    - New methods are `weierstrass() + ecdsa()` / `edwards() + eddsa()`
+    - weierstrass / edwards expect simplified curve params (Fp became p)
+    - ecdsa / eddsa expect Point class and hash
+    - Remove unnecessary Fn argument in `pippenger`
+- modular changes:
+    - Field#fromBytes() now validates elements to be in 0..order-1 range
+- Massively improve error messages, make them more descriptive
+
+Renamings:
+
+- Module changes
+    - `p256`, `p384`, `p521` modules have been moved into `nist`
+    - `jubjub` module has been moved into `misc`
+- Point changes
+    - ExtendedPoint, ProjectivePoint => Point
+    - Point coordinates (projective / extended) from px/ex, py/ey, pz/ez, et => X, Y, Z, T
+    - Point.normalizeZ, Point.msm => separate methods in `abstract/curve.js` submodule
+    - Point.fromPrivateKey() got removed, use `Point.BASE.multiply()` and `Point.Fn.fromBytes(secretKey)`
+    - toRawBytes, fromRawBytes => toBytes, fromBytes
+    - RistrettoPoint => ristretto255.Point, DecafPoiont => decaf448.Point
+- Signature (ECDSA) changes
+    - toCompactRawBytes, toDERRawBytes => toBytes('compact'), toBytes('der')
+    - toCompactHex, toDERHex => toHex('compact'), toHex('der')
+    - fromCompact, fromDER => fromBytes(format), fromHex(format)
+- utils changes
+    - randomPrivateKey => randomSecretKey
+    - utils.precompute, Point#_setWindowSize => Point#precompute
+    - edwardsToMontgomery => utils.toMontgomery
+    - edwardsToMontgomeryPriv => utils.toMontgomerySecret
+- Rename all curve-specific hash-to-curve methods to `*curve*_hasher`.
+  Example: `secp256k1.hashToCurve` => `secp256k1_hasher.hashToCurve()`
+- Massive type renamings and improvements
+
+Removed features:
+
+- Point#multiplyAndAddUnsafe, Point#hasEvenY
+- `CURVE` property with all kinds of random stuff. Point.CURVE() now replaces it, but only provides
+  curve parameters
+- Remove `pasta`, `bn254_weierstrass` (NOT pairing-based bn254) curves
+- utils.normPrivateKeyToScalar - use `Point.Fn.fromBytes`
+- Field.MASK
+
+### secp256k1 v1, ed25519 v1, bls12-381 v1 to curves v1
 
 Previously, the library was split into single-feature packages
 [noble-secp256k1](https://github.com/paulmillr/noble-secp256k1),
@@ -970,69 +988,41 @@ Previously, the library was split into single-feature packages
 [noble-bls12-381](https://github.com/paulmillr/noble-bls12-381).
 
 Curves continue their original work. The single-feature packages changed their
-direction towards providing minimal 4kb implementations of cryptography,
-which means they have less features.
+direction towards providing minimal 5kb implementations of cryptography,
+which means they have less features. Separate bls package had been deprecated.
 
-Upgrading from noble-secp256k1 2.0 or noble-ed25519 2.0: no changes, libraries are compatible.
+secp256k1:
 
-Upgrading from noble-secp256k1 1.7:
-
-- `getPublicKey`
-  - now produce 33-byte compressed signatures by default
-  - to use old behavior, which produced 65-byte uncompressed keys, set
-    argument `isCompressed` to `false`: `getPublicKey(priv, false)`
-- `sign`
-  - is now sync
-  - now returns `Signature` instance with `{ r, s, recovery }` properties
-  - `canonical` option was renamed to `lowS`
-  - `recovered` option has been removed because recovery bit is always returned now
-  - `der` option has been removed. There are 2 options:
-    1. Use compact encoding: `fromCompact`, `toCompactRawBytes`, `toCompactHex`.
-       Compact encoding is simply a concatenation of 32-byte r and 32-byte s.
-    2. If you must use DER encoding, switch to noble-curves (see above).
-- `verify`
-  - is now sync
-  - `strict` option was renamed to `lowS`
-- `getSharedSecret`
-  - now produce 33-byte compressed signatures by default
-  - to use old behavior, which produced 65-byte uncompressed keys, set
-    argument `isCompressed` to `false`: `getSharedSecret(a, b, false)`
+- `getPublicKey`: defaults to compressed sigs (use second argument to adjust)
+- `sign`: renamed options `canonical` => `lowS`; `der` => `format: 'der'`
+- `verify`: renamed option `strict` => `lowS`
+- `getSharedSecret`: defaults to compressed sigs (use third argument to adjust)
 - `recoverPublicKey(msg, sig, rec)` was changed to `sig.recoverPublicKey(msg)`
-- `number` type for private keys have been removed: use `bigint` instead
 - `Point` (2d xy) has been changed to `ProjectivePoint` (3d xyz)
-- `utils` were split into `utils` (same api as in noble-curves) and
-  `etc` (`hmacSha256Sync` and others)
 
-Upgrading from [@noble/ed25519](https://github.com/paulmillr/noble-ed25519) 1.7:
+ed25519:
 
-- Methods are now sync by default
-- `bigint` is no longer allowed in `getPublicKey`, `sign`, `verify`. Reason: ed25519 is LE, can lead to bugs
-- `Point` (2d xy) has been changed to `ExtendedPoint` (xyzt)
-- `Signature` was removed: just use raw bytes or hex now
-- `utils` were split into `utils` (same api as in noble-curves) and
-  `etc` (`sha512Sync` and others)
+- `Signature` was removed in favor of raw bytes
 - `getSharedSecret` was moved to `x25519` module
-- `toX25519` has been moved to `edwardsToMontgomeryPub` and `edwardsToMontgomeryPriv` methods
 
-Upgrading from [@noble/bls12-381](https://github.com/paulmillr/noble-bls12-381):
+bls12-381:
 
-- Methods and classes were renamed:
-  - PointG1 -> G1.Point, PointG2 -> G2.Point
-  - PointG2.fromSignature -> Signature.decode, PointG2.toSignature -> Signature.encode
-- Fp2 ORDER was corrected
+- Renamed PointG1 -> G1.Point, PointG2 -> G2.Point
+- Renamed PointG2.fromSignature -> Signature.decode, PointG2.toSignature -> Signature.encode
 
 ## Contributing & testing
 
-1. Clone the repository
-2. `npm install` to install build dependencies like TypeScript
-3. `npm run build` to compile TypeScript code
-4. `npm run test` will execute all main tests
+- `npm install && npm run build && npm test` will build the code and run tests.
+- `npm run lint` / `npm run format` will run linter / fix linter issues.
+- `npm run bench` will run benchmarks
+- `npm run build:release` will build single file
 
-## Resources
-
-Check out [paulmillr.com/noble](https://paulmillr.com/noble/)
+See [paulmillr.com/noble](https://paulmillr.com/noble/)
 for useful resources, articles, documentation and demos
 related to the library.
+
+MuSig2 signature scheme and BIP324 ElligatorSwift mapping for secp256k1
+are available [in a separate package](https://github.com/paulmillr/scure-btc-signer).
 
 ## License
 

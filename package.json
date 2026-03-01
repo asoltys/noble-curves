@@ -1,139 +1,65 @@
 {
   "name": "@noble/curves",
-  "version": "1.5.0",
+  "version": "2.0.1",
   "description": "Audited & minimal JS implementation of elliptic curve cryptography",
   "files": [
-    "abstract",
-    "esm",
-    "src",
     "*.js",
     "*.js.map",
     "*.d.ts",
-    "*.d.ts.map"
+    "*.d.ts.map",
+    "abstract",
+    "src"
   ],
-  "scripts": {
-    "bench": "cd benchmark; node secp256k1.js; node curves.js; node ecdh.js; node hash-to-curve.js; node modular.js; node bls.js; node ristretto255.js; node decaf448.js",
-    "build": "tsc && tsc -p tsconfig.esm.json",
-    "build:release": "cd build && npm i && npm run build",
-    "build:clean": "rm *.{js,d.ts,d.ts.map,js.map} esm/*.{js,d.ts,d.ts.map,js.map} 2> /dev/null",
-    "lint": "prettier --check 'src/**/*.{js,ts}' 'test/*.js'",
-    "format": "prettier --write 'src/**/*.{js,ts}' 'test/*.js'",
-    "test": "node test/index.test.js"
-  },
-  "author": "Paul Miller (https://paulmillr.com)",
-  "homepage": "https://paulmillr.com/noble/",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/paulmillr/noble-curves.git"
-  },
-  "license": "MIT",
   "dependencies": {
-    "@noble/hashes": "1.4.0",
-    "@types/node": "^22.3.0"
+    "@noble/hashes": "2.0.1"
   },
   "devDependencies": {
-    "@paulmillr/jsbt": "0.2.1",
-    "fast-check": "3.0.0",
-    "micro-bmark": "0.3.1",
-    "micro-should": "0.4.0",
-    "prettier": "3.3.2",
-    "typescript": "5.5.2"
+    "@paulmillr/jsbt": "0.4.5",
+    "@types/node": "24.2.1",
+    "fast-check": "4.2.0",
+    "prettier": "3.6.2",
+    "typescript": "5.9.2"
   },
-  "sideEffects": false,
-  "main": "index.js",
+  "scripts": {
+    "bench": "cd test/benchmark; node secp256k1.ts; node curves.ts; node utils.ts; node bls.ts",
+    "bench:install": "cd test/benchmark; npm install; npm install ../.. --install-links",
+    "build": "tsc",
+    "build:release": "npx --no @paulmillr/jsbt esbuild test/build",
+    "build:clean": "rm {.,abstract}/*.{js,d.ts,d.ts.map,js.map} 2> /dev/null",
+    "format": "prettier --write 'src/**/*.{js,ts}' 'test/*.{js,ts}'",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning test/index.ts",
+    "test:bun": "bun test/index.ts",
+    "test:deno": "deno --allow-env --allow-read test/index.ts",
+    "test:node20": "cd test; npx tsc; node compiled/test/index.js",
+    "test:coverage": "npm install --no-save c8@10.1.2 && npx c8 npm test"
+  },
   "exports": {
-    ".": {
-      "import": "./esm/index.js",
-      "require": "./index.js"
-    },
-    "./abstract/edwards": {
-      "import": "./esm/abstract/edwards.js",
-      "require": "./abstract/edwards.js"
-    },
-    "./abstract/modular": {
-      "import": "./esm/abstract/modular.js",
-      "require": "./abstract/modular.js"
-    },
-    "./abstract/montgomery": {
-      "import": "./esm/abstract/montgomery.js",
-      "require": "./abstract/montgomery.js"
-    },
-    "./abstract/weierstrass": {
-      "import": "./esm/abstract/weierstrass.js",
-      "require": "./abstract/weierstrass.js"
-    },
-    "./abstract/bls": {
-      "import": "./esm/abstract/bls.js",
-      "require": "./abstract/bls.js"
-    },
-    "./abstract/hash-to-curve": {
-      "import": "./esm/abstract/hash-to-curve.js",
-      "require": "./abstract/hash-to-curve.js"
-    },
-    "./abstract/curve": {
-      "import": "./esm/abstract/curve.js",
-      "require": "./abstract/curve.js"
-    },
-    "./abstract/utils": {
-      "import": "./esm/abstract/utils.js",
-      "require": "./abstract/utils.js"
-    },
-    "./abstract/poseidon": {
-      "import": "./esm/abstract/poseidon.js",
-      "require": "./abstract/poseidon.js"
-    },
-    "./_shortw_utils": {
-      "import": "./esm/_shortw_utils.js",
-      "require": "./_shortw_utils.js"
-    },
-    "./bls12-381": {
-      "import": "./esm/bls12-381.js",
-      "require": "./bls12-381.js"
-    },
-    "./bn254": {
-      "import": "./esm/bn254.js",
-      "require": "./bn254.js"
-    },
-    "./ed25519": {
-      "import": "./esm/ed25519.js",
-      "require": "./ed25519.js"
-    },
-    "./ed448": {
-      "import": "./esm/ed448.js",
-      "require": "./ed448.js"
-    },
-    "./index": {
-      "import": "./esm/index.js",
-      "require": "./index.js"
-    },
-    "./jubjub": {
-      "import": "./esm/jubjub.js",
-      "require": "./jubjub.js"
-    },
-    "./p256": {
-      "import": "./esm/p256.js",
-      "require": "./p256.js"
-    },
-    "./p384": {
-      "import": "./esm/p384.js",
-      "require": "./p384.js"
-    },
-    "./p521": {
-      "import": "./esm/p521.js",
-      "require": "./p521.js"
-    },
-    "./pasta": {
-      "import": "./esm/pasta.js",
-      "require": "./pasta.js"
-    },
-    "./secp256k1": {
-      "import": "./esm/secp256k1.js",
-      "require": "./secp256k1.js"
-    }
+    ".": "./index.js",
+    "./abstract/bls.js": "./abstract/bls.js",
+    "./abstract/curve.js": "./abstract/curve.js",
+    "./abstract/edwards.js": "./abstract/edwards.js",
+    "./abstract/fft.js": "./abstract/fft.js",
+    "./abstract/hash-to-curve.js": "./abstract/hash-to-curve.js",
+    "./abstract/modular.js": "./abstract/modular.js",
+    "./abstract/montgomery.js": "./abstract/montgomery.js",
+    "./abstract/oprf.js": "./abstract/oprf.js",
+    "./abstract/poseidon.js": "./abstract/poseidon.js",
+    "./abstract/tower.js": "./abstract/tower.js",
+    "./abstract/weierstrass.js": "./abstract/weierstrass.js",
+    "./bls12-381.js": "./bls12-381.js",
+    "./bn254.js": "./bn254.js",
+    "./ed448.js": "./ed448.js",
+    "./ed25519.js": "./ed25519.js",
+    "./misc.js": "./misc.js",
+    "./nist.js": "./nist.js",
+    "./secp256k1.js": "./secp256k1.js",
+    "./utils.js": "./utils.js",
+    "./webcrypto.js": "./webcrypto.js"
+  },
+  "engines": {
+    "node": ">= 20.19.0"
   },
   "keywords": [
-    "elliptic",
-    "curve",
     "cryptography",
     "secp256k1",
     "ed25519",
@@ -152,10 +78,21 @@
     "ecc",
     "ecdsa",
     "eddsa",
-    "weierstrass",
-    "montgomery",
-    "edwards",
-    "schnorr"
+    "oprf",
+    "schnorr",
+    "fft"
   ],
-  "funding": "https://paulmillr.com/funding/"
+  "homepage": "https://paulmillr.com/noble/",
+  "funding": "https://paulmillr.com/funding/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paulmillr/noble-curves.git"
+  },
+  "type": "module",
+  "main": "index.js",
+  "module": "index.js",
+  "types": "index.d.ts",
+  "sideEffects": false,
+  "author": "Paul Miller (https://paulmillr.com)",
+  "license": "MIT"
 }
