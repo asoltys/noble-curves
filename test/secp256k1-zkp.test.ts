@@ -5,8 +5,8 @@ import { rangeproofSign } from '../src/secp256k1';
 
 import { default as v } from './vectors/secp256k1/rangeproof.json' with { type: 'json' };
 
-describe('secp256k1 rangeproof sign', () => {
-  should('match the test vector from liquidjs-lib', async () => {
+describe('secp256k1 rangeproof', () => {
+  should('sign', async () => {
       const {
           value,
           minval,
@@ -31,6 +31,36 @@ describe('secp256k1 rangeproof sign', () => {
         msg,
         script,
         genp
+      );
+
+      deepStrictEqual(hex(result), v.sign.expected)
+  });
+
+  should('verify', async () => {
+      const {
+          value,
+          minval,
+          exp,
+          bits,
+          genp,
+          blind,
+          nonce,
+          script,
+          msg,
+          commit
+        } = v.sign;
+
+    "scriptPubkey"
+    "assetGenerator"
+    "blindingPrivkey"
+    "ephemeralPubkey"
+    "valueCommitment"
+      const result = rangeproofVerify(
+    "scriptPubkey"
+    "assetGenerator"
+    "blindingPrivkey"
+    "ephemeralPubkey"
+    "valueCommitment"
       );
 
       deepStrictEqual(hex(result), v.sign.expected)
